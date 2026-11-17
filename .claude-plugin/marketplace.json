@@ -1,0 +1,15 @@
+{
+  "name": "software-architector",
+  "owner": {
+    "name": "shleyger-dotcom",
+    "email": "shleyger@gmail.com"
+  },
+  "description": "Marketplace for the Software-Architector plugin",
+  "plugins": [
+    {
+      "name": "software-architector",
+      "source": "./",
+      "description": "Idea → finished project through a subagent pipeline with a stage dashboard"
+    }
+  ]
+}

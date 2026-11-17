@@ -1,0 +1,40 @@
+name: test
+on: [push, pull_request]
+# least privilege: the jobs only read the repository
+permissions:
+  contents: read
+env:
+  # pinned to the version the plugin was last checked with; raise it on purpose, never float to "latest"
+  CLAUDE_CODE_VERSION: "2.1.325"
+jobs:
+  unittest:
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-24.04, not -latest: Python 3.9 is not offered on newer Ubuntu images
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+        python: ["3.9", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # shortcut: actions are pinned to their major tag; pinning to a commit SHA needs a lookup of the current SHAs
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m compileall -q scripts tests
+      - run: python -m unittest discover -s tests
+  plugin:
+    # the manifest, the hooks module's types and the panel tests; neither command needs a login
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+      - run: claude plugin validate .
+      - run: claude plugin test .

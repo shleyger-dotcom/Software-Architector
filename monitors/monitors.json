@@ -1,0 +1,8 @@
+[
+  {
+    "name": "dashboard",
+    "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/bv\" serve",
+    "description": "Software-Architector web dashboard (for the terminal; in VS Code, the panel on the right)",
+    "when": "on-skill-invoke:build"
+  }
+]

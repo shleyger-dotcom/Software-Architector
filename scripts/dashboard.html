@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Software-Architector</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --line: #d8dee4; --card: #f6f8fa;
+    --pending: #8c959f; --active: #0969da; --done: #1a7f37; --review: #0e8a8a; --repair: #8250df;
+    --failed: #cf222e; --skipped: #8c959f; --warn: #9a6700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1e; --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --card: #262626;
+      --pending: #6e7681; --active: #4493f8; --done: #3fb950; --review: #39c5cf; --repair: #ab7df8;
+      --failed: #f85149; --skipped: #6e7681; --warn: #d29922;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 12px; background: var(--bg); color: var(--fg);
+         font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 15px; margin: 0 0 2px; }
+  h2 { font-size: 13px; margin: 16px 0 6px; }
+  .meta, .hint { color: var(--muted); font-size: 12px; }
+  .warn { color: var(--warn); } .ok { color: var(--done); } .bad { color: var(--failed); } .run { color: var(--active); }
+  .soft { color: var(--muted); }
+  .banner { display: none; margin: 8px 0; padding: 6px 10px; border-radius: 6px;
+            border: 1px solid var(--failed); color: var(--failed); }
+  .result { margin: 8px 0; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--done); }
+  .result.g-bad { border-color: var(--failed); color: var(--failed); }
+  .wait { margin: 8px 0; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--warn); }
+  .wait b { color: var(--warn); } .wait p { margin: 4px 0 0; white-space: pre-wrap; }
+  .layout { display: grid; gap: 16px; }
+  .layout > * { min-width: 0; } /* a long unwrapped row must ellipsize, not widen the page */
+  @media (min-width: 1000px) {
+    .layout.split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .layout.split aside { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; }
+  }
+  .gates { display: flex; flex-wrap: wrap; gap: 6px; }
+  .gate { padding: 2px 8px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); font-size: 12px; }
+  .gate.g-ok { border-color: var(--done); } .gate.g-bad { border-color: var(--failed); color: var(--failed); }
+  .gate.g-run { border-color: var(--active); }
+  .stages { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+  .stage { padding: 5px 8px; border-radius: 6px; background: var(--card); }
+  .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--pending); }
+  .stage.active { outline: 1px solid var(--active); }
+  .stage.active .dot { background: var(--active); animation: pulse 1.4s ease-in-out infinite; }
+  .stage.done .dot { background: var(--done); }
+  .stage.skipped .dot { background: transparent; border: 1px solid var(--skipped); }
+  .stage.failed .dot { background: var(--failed); }
+  .stage .st { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .stage.pending .name { color: var(--muted); }
+  .note { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .ticket { margin: 6px 0 0 18px; padding-left: 8px; border-left: 2px solid var(--line); }
+  .ticket .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .group { margin: 4px 0 0 18px; display: grid; gap: 2px; }
+  .badge { display: inline-block; padding: 0 6px; border-radius: 10px; color: #fff; font-size: 11px; white-space: nowrap; }
+  .b-pending { background: var(--pending); } .b-in-progress { background: var(--active); }
+  .b-review { background: var(--review); } .b-repair { background: var(--repair); }
+  .b-done { background: var(--done); } .b-failed { background: var(--failed); }
+  code { font: 11px ui-monospace, Consolas, monospace; }
+  .empty { color: var(--muted); padding: 24px 0; }
+  button { font: inherit; color: var(--fg); }
+  .agent, .act { display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left; cursor: pointer;
+                 padding: 4px 8px; border: 0; border-radius: 6px; background: var(--bg); min-width: 0; }
+  .agent .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agent.sel { outline: 1px solid var(--active); }
+  .agent .n, .act .n { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .act { background: transparent; padding: 2px 8px; }
+  .act:hover, .agent:hover, .act.sel { background: var(--line); }
+  .act code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+  .now { margin: 0 0 2px 26px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .now.warn { color: var(--warn); }
+  .deny { color: var(--failed); padding: 2px 8px; font-size: 12px; }
+  .btn { padding: 2px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); cursor: pointer; font-size: 12px; }
+  .btn:hover { border-color: var(--active); }
+  .btn kbd, .hint kbd { font: 11px ui-monospace, Consolas, monospace; color: var(--muted); }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+  .dhead { display: flex; align-items: flex-start; gap: 8px; }
+  .dhead h2 { margin-top: 0; }
+  .dhead .btn { margin-left: auto; }
+  .files { display: grid; gap: 1px; }
+  .file { text-align: left; border: 0; background: transparent; cursor: copy; padding: 1px 8px; color: var(--muted);
+          font: 11px ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file:hover { color: var(--fg); background: var(--line); }
+  .summary { white-space: pre-wrap; margin: 6px 0; }
+  pre.out { max-height: 60vh; overflow: auto; margin: 2px 0 6px; padding: 8px; background: var(--card); border-radius: 6px;
+            font: 11px/1.4 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+  .toast { position: fixed; right: 16px; bottom: 16px; max-width: calc(100vw - 32px); padding: 6px 12px; border-radius: 6px;
+           background: var(--fg); color: var(--bg); font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.on { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .stage.active .dot { animation: none; } .toast { transition: none; } }
+</style>
+</head>
+<body>
+<h1 id="title">Software-Architector</h1>
+<div class="meta" id="meta">loading…</div>
+<div class="meta" id="fresh"></div>
+<div class="banner" id="banner" role="alert">No connection to the dashboard server — is the Claude Code session closed? The page recovers on its own when the server returns.</div>
+<div class="layout" id="layout">
+  <main id="body"></main>
+  <aside id="detail"></aside>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script>
+const STAGE_STATUS = { pending: "pending", active: "running", done: "done", skipped: "skipped", failed: "failed" };
+const TICKET_STATUS = { pending: "pending", "in-progress": "in progress", review: "in review", repair: "repair", done: "done", failed: "failed" };
+const MODE = { full: "full auto", semi: "semi-auto", interview: "interview" };
+const AGENT_NAMES = { "bv-scout": "Scout", "bv-research": "Research", "bv-coverage": "Coverage G2", "bv-executor": "Executor",
+  "bv-reviewer": "Reviewer", "bv-blind": "Blind acceptance G4", "bv-adr": "ADR", "bv-memory": "Memory" };
+const GATE_NAMES = { G1: "Requirements", G2: "Coverage", G3: "Plan", G4: "Blind acceptance", G5: "Clean clone" };
+const GATE_AGENT = { G2: "bv-coverage", G4: "bv-blind" };
+const EDITS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+const TEST_RUN = /\b(pytest|unittest|jest|vitest|mocha|phpunit|rspec|go test|cargo test|dotnet test|(npm|pnpm|yarn|bun)( run)? test)\b/;
+const SILENCE_S = 300; // a running agent quiet this long is flagged: a long test run, or a stuck agent
+const ACTIONS_SHOWN = 300, FILES_SHOWN = 15, SUMMARY_LINES = 3;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// What the run sends, and what the viewer picked (the pane's PanelView, kept per page).
+let st = null, files = {}, stSig = null, agSig = null, lastPaint = 0, fails = 0;
+const ui = { agent: null, call: null, errors: false, full: false, done: false };
+const outCache = new Map(); // a call's output file never changes once written
+
+const dur = s => s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m" : Math.floor(s / 3600) + "h " + Math.floor(s / 60) % 60 + "m";
+const secs = (a, b) => Math.max(0, Math.round(((b ? Date.parse(b) : Date.now()) - Date.parse(a)) / 1000));
+const since = (a, b) => a ? dur(secs(a, b)) : "";
+const num = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n);
+const took = a => a.running ? since(a.start) : a.ms ? dur(Math.round(a.ms / 1000)) : since(a.start, a.stop);
+
+// A failed test run the same agent later sees pass: red, then green, as test-first means it to be.
+function redThenGreen(acts) {
+  const out = new Set();
+  let red = [];
+  for (const e of acts) {
+    if (e.k !== "tool" || (e.tool !== "Bash" && e.tool !== "PowerShell") || !TEST_RUN.test(e.s || "")) continue;
+    if (e.ok === false) red.push(e);
+    else { red.forEach(x => out.add(x)); red = []; }
+  }
+  return out;
+}
+
+function toAgents(files, tickets) {
+  const spawns = {};
+  for (const evs of Object.values(files)) for (const e of evs) if (e.spawned) spawns[e.spawned] = e;
+  return Object.entries(files).map(([id, events]) => {
+    const start = events.find(e => e.k === "agent-start");
+    const stop = [...events].reverse().find(e => e.k === "agent-stop");
+    const sp = spawns[id];
+    const type = id === "main" ? "main" : (start && start.type) || "";
+    const desc = sp && sp.s ? sp.s.replace(/^\S*:\s+/, "") : ""; // "software-architector:bv-executor: Ticket 01: …" → "Ticket 01: …"
+    const title = id === "main" ? "Orchestrator" : (AGENT_NAMES[type] || type || "Agent") + (desc ? " · " + desc : "");
+    const acts = events.filter(e => e.k === "tool" || e.k === "deny");
+    const soft = redThenGreen(acts);
+    // shortcut: the ticket is found by its id in the spawn description ("Ticket 01: …", "T01 …"); record it on spawn if ids collide
+    const ticket = desc ? (tickets.find(t => new RegExp(`\\bT?${t.id}\\b`, "i").test(desc)) || {}).id : undefined;
+    return { id, type, title, events, acts, running: id !== "main" && !!start && !stop,
+             start: start ? start.t : (events[0] || {}).t, stop: stop && stop.t, last: stop && stop.last,
+             tokens: sp && sp.tokens, ms: sp && sp.ms, ticket, soft,
+             hard: acts.filter(e => e.k === "tool" && e.ok === false).length - soft.size,
+             denies: acts.filter(e => e.k === "deny").length };
+  }).sort((a, b) => String(a.start || "").localeCompare(String(b.start || "")));
+}
+
+// The orchestrator's last say: a question or an ended turn not answered yet means the run waits for the person.
+function waiting() {
+  if (!st || st.finishedAt) return undefined;
+  const e = [...(files.main || [])].reverse().find(x => ["wait", "resume", "tool", "deny"].includes(x.k));
+  return e && e.k === "wait" ? e.last || "" : undefined;
+}
+
+// The stage an agent belongs to: the last one that had started when the agent did.
+const stageOf = a => ([...st.stages].reverse().find(s => s.startedAt && s.startedAt <= (a.start || "")) || {}).id;
+
+function ticketInfo(t) {
+  return [t.wave != null && "wave " + t.wave, t.model, /^yes/i.test(t.review || "") && "review",
+    t.tests && `tests ${t.tests.passed}/${t.tests.failed}`, (t.repairs || t.retries) && `repairs ${t.repairs || 0} · retries ${t.retries || 0}`,
+    t.commit && t.commit.slice(0, 7), t.startedAt && since(t.startedAt, t.finishedAt)].filter(Boolean).join(" · ");
+}
+
+const visible = a => ui.done || a.running || a.hard > 0 || a.denies > 0;
+
+function agentRow(a) {
+  const lastEv = a.events[a.events.length - 1], doing = a.acts[a.acts.length - 1];
+  const quiet = a.running && lastEv && secs(lastEv.t) > SILENCE_S;
+  return `<button class="agent${a.id === ui.agent ? " sel" : ""}" data-agent="${esc(a.id)}">
+      <span class="${a.running ? "run" : "ok"}">${a.running ? "●" : "✓"}</span><span class="t">${esc(a.title)}</span>
+      <span class="n">${a.hard ? `<span class="bad">✗${a.hard}</span> ` : ""}${a.soft.size ? `<span class="soft" title="red test, later green">✗${a.soft.size}</span> ` : ""}${a.denies ? `<span class="bad">⛔${a.denies}</span> ` : ""}${a.acts.length} · ${took(a)}</span></button>`
+    + (a.running && (doing || quiet) ? `<div class="now${quiet ? " warn" : ""}">↳ ${doing ? `<b>${esc(doing.tool)}</b> <code>${esc(doing.s)}</code>` : ""}${quiet ? " · silent " + since(lastEv.t) : doing ? ` · ${since(doing.t)} ago` : ""}</div>` : "");
+}
+
+function group(list) {
+  if (!list.length) return "";
+  const hidden = list.filter(a => !visible(a)).length;
+  return `<div class="group">${list.filter(visible).map(agentRow).join("")}${hidden ? `<div class="hint">hidden finished without errors: ${hidden}</div>` : ""}</div>`;
+}
+
+function renderMain(agents) {
+  const body = document.getElementById("body");
+  if (!st) {
+    document.getElementById("title").textContent = "Software-Architector";
+    document.getElementById("meta").textContent = "No run started yet";
+    document.getElementById("fresh").textContent = "";
+    body.innerHTML = '<p class="empty">Run /software-architector:build &lt;idea&gt; — the stages appear here.</p>';
+    return;
+  }
+  const wait = waiting();
+  const rejected = st.finishedAt && st.accepted === false;
+  document.title = (rejected ? "✗ " : st.finishedAt ? "✓ " : wait !== undefined ? "⏸ " : "● ") + "Software-Architector — " + st.title;
+  document.getElementById("title").textContent = st.title;
+  const subs = agents.filter(a => a.id !== "main"), main = agents.find(a => a.id === "main");
+  const tokens = subs.reduce((n, a) => n + (a.tokens || 0), 0);
+  document.getElementById("meta").textContent = [MODE[st.mode] || st.mode, st.depth, st.tier,
+    st.startedAt && (st.finishedAt ? (rejected ? "closed in " : "delivered in ") + since(st.startedAt, st.finishedAt) : "running " + since(st.startedAt)),
+    tokens > 0 && "tokens " + num(tokens)].filter(Boolean).join(" · ");
+  const lastT = [st.updatedAt || "", ...agents.map(a => (a.events[a.events.length - 1] || {}).t || "")].sort().pop();
+  const quietRun = !st.finishedAt && wait === undefined && lastT && secs(lastT) > SILENCE_S;
+  const fresh = document.getElementById("fresh");
+  fresh.className = "meta" + (quietRun ? " warn" : "");
+  fresh.textContent = !lastT || st.finishedAt ? "" : quietRun
+    ? `Silent for ${since(lastT)}: no events from any agent` : `updated ${since(lastT)} ago`;
+
+  const gates = Object.entries(st.gates).map(([g, x]) => {
+    const busy = !x && agents.some(a => a.running && a.type === GATE_AGENT[g]);
+    return `<span class="gate ${x ? (x.ok ? "g-ok" : "g-bad") : busy ? "g-run" : ""}">
+      <span class="${x ? (x.ok ? "ok" : "bad") : busy ? "run" : "soft"}">${x ? (x.ok ? "✓" : "✗") : busy ? "●" : "·"}</span>
+      ${esc(g)} ${esc(GATE_NAMES[g] || "")}${x && x.at ? " · " + esc(x.at.slice(11, 16)) : busy ? " · running" : ""}</span>`;
+  }).join("");
+
+  const tk = st.tickets || [];
+  const tickets = tk.map(t => `
+    <div class="ticket">
+      <div class="row"><code>T${esc(t.id)}</code><span class="tt">${esc(t.title)}</span>
+        <span class="badge b-${esc(t.status)}">${TICKET_STATUS[t.status] || esc(t.status)}</span></div>
+      ${ticketInfo(t) ? `<div class="hint">${esc(ticketInfo(t))}</div>` : ""}
+      ${group(subs.filter(a => a.ticket === t.id))}
+    </div>`).join("");
+  const stages = st.stages.map(s => `
+    <li class="stage ${esc(s.status)}">
+      <div class="row"><span class="dot"></span><span class="name">${esc(s.label)}</span>
+        ${s.note ? `<span class="note" title="${esc(s.note)}">— ${esc(s.note)}</span>` : ""}
+        <span class="st">${s.startedAt && s.status !== "skipped" ? since(s.startedAt, s.finishedAt) + " · " : ""}${STAGE_STATUS[s.status] || esc(s.status)}</span></div>
+      ${s.id === "build" ? tickets : ""}
+      ${group(subs.filter(a => !a.ticket && stageOf(a) === s.id))}
+    </li>`).join("");
+  const loose = subs.filter(a => !a.ticket && !stageOf(a));
+  const hiddenAll = subs.filter(a => !visible(a)).length;
+
+  body.innerHTML = (rejected ? `<div class="result g-bad">Build NOT accepted: ${esc(st.result)}${(st.problems || []).map(p => `<br>· ${esc(p)}`).join("")}</div>`
+      : st.finishedAt ? `<div class="result">Build delivered${(st.unproven || []).length ? ", except: " + esc(st.unproven.join(", ")) : ""}: ${esc(st.result)}</div>` : "")
+    + (wait !== undefined ? `<div class="wait"><b>⏸ Waiting for you</b>${wait ? `<p>${esc(wait.length > 600 ? wait.slice(0, 600) + " …" : wait)}</p>` : ""}</div>` : "")
+    + `<h2>Gates</h2><div class="gates">${gates}</div>`
+    + `<h2>Stages${tk.length ? ` · tickets ${tk.filter(t => t.status === "done").length} of ${tk.length}` : ""}</h2><ol class="stages">${stages}</ol>`
+    + (loose.length ? `<h2>Other agents</h2>${group(loose)}` : "")
+    + `<h2></h2>` + (main ? agentRow(main) : `<p class="hint">Log is empty — actions appear with the first tool call.</p>`)
+    + (hiddenAll || ui.done ? `<div class="bar"><button class="btn" data-act="done">${ui.done ? "Hide finished without errors" : `Show all agents (+${hiddenAll})`} <kbd>a</kbd></button></div>` : "");
+}
+
+function renderDetail(agents) {
+  const box = document.getElementById("detail");
+  const a = agents.find(x => x.id === ui.agent);
+  document.getElementById("layout").classList.toggle("split", !!a);
+  if (!a) { box.innerHTML = ""; return; }
+  const list = a.acts;
+  const bad = list.filter(x => x.k === "deny" || (x.ok === false && !a.soft.has(x)));
+  const src = ui.errors ? bad : list;
+  const byTool = {};
+  for (const x of list) if (x.k === "tool") byTool[x.tool] = (byTool[x.tool] || 0) + 1;
+  const tools = Object.entries(byTool).sort((p, q) => q[1] - p[1]).map(([t, n]) => `${esc(t)} ${n}`).join(" · ");
+  const changed = [...new Set(list.filter(x => x.k === "tool" && x.ok !== false && EDITS.has(x.tool)).map(x => x.s || ""))];
+  const lastBad = [...list].reverse().find(x => x.k === "tool" && x.ok === false && !a.soft.has(x));
+  const lines = (a.last || "").split("\n"), long = lines.length > SUMMARY_LINES;
+  const calls = list.filter(x => x.out), ci = calls.findIndex(x => x.out === ui.call);
+
+  const acts = src.slice(-ACTIONS_SHOWN).reverse().map(e => {
+    if (e.k === "deny") return `<div class="deny">⛔ ${esc(e.tool)} ${esc(e.s)} — ${esc(e.why)}</div>`;
+    const mark = e.ok === false ? `<span class="${a.soft.has(e) ? "soft" : "bad"}"${a.soft.has(e) ? ' title="red test, later green"' : ""}>✗</span>` : `<span class="ok">✓</span>`;
+    const open = ui.call === e.out;
+    const file = open && (EDITS.has(e.tool) || e.tool === "Read") ? e.s : "";
+    return `<button class="act${open ? " sel" : ""}" data-call="${esc(e.out)}">${mark}<b>${esc(e.tool)}</b><code>${esc(e.s)}</code>
+        <span class="n">${esc((e.t || "").slice(11, 19))}</span></button>`
+      + (open ? `<div class="bar"><span class="hint">call ${ci + 1} of ${calls.length} · ${esc(e.chars ?? "")} chars</span>
+          ${ci > 0 ? '<button class="btn" data-act="prev">Earlier <kbd>p</kbd></button>' : ""}
+          ${ci >= 0 && ci < calls.length - 1 ? '<button class="btn" data-act="next">Later <kbd>n</kbd></button>' : ""}
+          ${file ? `<button class="btn" data-copy="${esc(file)}">File path</button>` : ""}
+          <button class="btn" data-copy="${esc(location.origin + "/out/" + encodeURIComponent(e.out))}">Output link</button></div>
+        <pre class="out" id="out">${outCache.has(e.out) ? esc(outCache.get(e.out)) : "loading…"}</pre>` : "");
+  }).join("");
+
+  box.innerHTML = `<div class="dhead"><h2>${esc(a.title)}</h2><button class="btn" data-act="close" title="Close">× <kbd>Esc</kbd></button></div>
+    <div class="meta">${a.id === "main" ? "main thread" : (a.running ? "running " : "done in ") + took(a)}
+      · actions ${list.length}${a.tokens ? " · tokens " + num(a.tokens) : ""}</div>
+    ${a.hard || a.soft.size || a.denies ? `<div>${a.hard ? `<span class="bad">errors ${a.hard}</span> ` : ""}${a.soft.size ? `<span class="soft">red tests, later green: ${a.soft.size}</span> ` : ""}${a.denies ? `<span class="bad">blocks ${a.denies}</span>` : ""}</div>` : ""}
+    ${tools ? `<div class="hint">${tools}</div>` : ""}
+    ${lastBad ? `<button class="act" data-call="${esc(lastBad.out)}"><span class="bad">Last error:</span><b>${esc(lastBad.tool)}</b><code>${esc(lastBad.s)}</code></button>` : ""}
+    ${changed.length ? `<h2>Files changed: ${changed.length} <span class="hint">· click copies the path</span></h2><div class="files">${changed.slice(0, FILES_SHOWN).map(f => `<button class="file" data-copy="${esc(f)}">${esc(f)}</button>`).join("")}${changed.length > FILES_SHOWN ? `<div class="hint">…${changed.length - FILES_SHOWN} more</div>` : ""}</div>` : ""}
+    ${a.last ? `<h2>Result</h2><div class="summary">${esc(ui.full || !long ? a.last : lines.slice(0, SUMMARY_LINES).join("\n") + " …")}</div>
+      ${long ? `<button class="btn" data-act="full">${ui.full ? "Collapse result" : "Full result"} <kbd>f</kbd></button>` : ""}` : ""}
+    <div class="bar"><h2 style="margin:8px 0 0">${ui.errors ? "Errors only" : "Actions"}, newest first</h2>
+      ${bad.length ? `<button class="btn" data-act="errors">${ui.errors ? "All actions" : `Errors only (${bad.length})`} <kbd>e</kbd></button>` : ""}</div>
+    <div>${acts}</div>${src.length > ACTIONS_SHOWN ? `<div class="hint">…${src.length - ACTIONS_SHOWN} earlier</div>` : ""}`;
+
+  const out = document.getElementById("out");
+  if (out && !outCache.has(ui.call)) {
+    const id = ui.call;
+    fetch("/out/" + encodeURIComponent(id), { cache: "no-store" })
+      .then(r => r.ok ? r.text() : null)
+      .then(text => {
+        if (text !== null) outCache.set(id, text); // a missing file may still be on its way: asked again next paint
+        const el = document.getElementById("out");
+        if (el && ui.call === id) el.textContent = text ?? "Output file not found.";
+      })
+      .catch(() => undefined);
+  }
+}
+
+function paint() {
+  const agents = st ? toAgents(files, st.tickets || []) : [];
+  const aside = document.getElementById("detail"), keep = aside.scrollTop;
+  renderMain(agents);
+  renderDetail(agents);
+  aside.scrollTop = keep;
+  lastPaint = Date.now();
+}
+
+let toastTimer = 0;
+function toast(text) {
+  const el = document.getElementById("toast");
+  el.textContent = text;
+  el.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("on"), 2500);
+}
+
+async function copy(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("Copied: " + text);
+  } catch {
+    toast("Not copied — the browser did not allow clipboard access");
+  }
+}
+
+function act(name) {
+  const a = st && toAgents(files, st.tickets || []).find(x => x.id === ui.agent);
+  const calls = a ? a.acts.filter(x => x.out) : [], i = calls.findIndex(x => x.out === ui.call);
+  if (name === "done") ui.done = !ui.done;
+  else if (name === "close") { if (ui.call) ui.call = null; else ui.agent = null; }
+  else if (!a) return false;
+  else if (name === "errors") ui.errors = !ui.errors;
+  else if (name === "full") ui.full = !ui.full;
+  else if (name === "prev" && i > 0) ui.call = calls[i - 1].out;
+  else if (name === "next" && i >= 0 && i < calls.length - 1) ui.call = calls[i + 1].out;
+  else return false;
+  return true;
+}
+
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-agent],[data-call],[data-act],[data-copy]");
+  if (!el) return;
+  if (el.dataset.copy !== undefined) { copy(el.dataset.copy); return; }
+  if (el.dataset.agent) {
+    const picked = ui.agent !== el.dataset.agent;
+    Object.assign(ui, { agent: picked ? el.dataset.agent : null, call: null, errors: false, full: false });
+    paint();
+    if (picked && innerWidth < 1000) document.getElementById("detail").scrollIntoView({ block: "start" });
+    return;
+  }
+  if (el.dataset.call) ui.call = ui.call === el.dataset.call ? null : el.dataset.call;
+  else if (!act(el.dataset.act)) return;
+  paint();
+});
+
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  const name = { a: "done", e: "errors", f: "full", p: "prev", n: "next", Escape: "close" }[e.key];
+  if (name && act(name)) { e.preventDefault(); paint(); }
+});
+
+async function tick() {
+  try {
+    const r = await fetch("/state.json?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    const sText = await r.text();
+    const ar = await fetch("/agents.json?t=" + Date.now(), { cache: "no-store" });
+    const aText = ar.ok ? await ar.text() : "{}";
+    fails = 0;
+    document.getElementById("banner").style.display = "none";
+    const stale = st && !st.finishedAt && Date.now() - lastPaint > 10000; // keeps the clocks and silences fresh
+    if (sText === stSig && aText === agSig && !stale) return;
+    stSig = sText; agSig = aText;
+    st = JSON.parse(sText);
+    files = JSON.parse(aText);
+    paint();
+  } catch (e) {
+    if (++fails >= 2) document.getElementById("banner").style.display = "block";
+  }
+}
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>

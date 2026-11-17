@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Software-Architector CLI launcher. Finds a real Python 3.9+: on Windows `python3` is often a Microsoft Store stub.
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+script=bv.py
+if [ "$1" = hook ]; then
+  # Hooks fire on every tool call of every session. With no run in the project there is nothing to guard or journal:
+  # leave before Python starts. The same search as guard.project_root; without CLAUDE_PROJECT_DIR Python decides.
+  if [ -n "$CLAUDE_PROJECT_DIR" ]; then
+    run=
+    for d in "$PWD" "$CLAUDE_PROJECT_DIR"; do
+      d="${d//\\//}"  # C:\a\b -> C:/a/b
+      while :; do
+        [ -f "$d/.software-architector/state.json" ] && { run=1; break 2; }
+        case "$d" in */*) d="${d%/*}" ;; *) break ;; esac
+      done
+    done
+    [ -n "$run" ] || exit 0
+  fi
+  script=guard.py  # the hook entry without the CLI's imports
+  shift
+fi
+# The py launcher only exists with a real Windows install — exec it directly, it runs on every hook call.
+command -v py >/dev/null 2>&1 && exec py -3 "$dir/../scripts/$script" "$@"
+for py in python3 python; do
+  if $py -c "import sys; sys.exit(sys.version_info < (3, 9))" >/dev/null 2>&1; then
+    exec $py "$dir/../scripts/$script" "$@"
+  fi
+done
+echo "bv: Python 3.9+ is required (none of py, python3, python was found)" >&2
+exit 1

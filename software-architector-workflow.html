@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Software-Architector v3.6.0 — Graphical Workflow</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --surface: #111827;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --blue: #38bdf8;
+      --indigo: #818cf8;
+      --emerald: #10b981;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --purple: #c084fc;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+      background: radial-gradient(circle at top right, #1e293b 0%, #0b0f19 45%, #070a12 100%);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 28px 36px 60px;
+      min-height: 100vh;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      background: rgba(30, 41, 59, 0.75);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px 28px;
+      margin-bottom: 24px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    }
+    .brand { display: flex; align-items: center; gap: 18px; }
+    .logo {
+      width: 52px; height: 52px;
+      border-radius: 14px;
+      background: rgba(56, 189, 248, 0.15);
+      border: 2px solid var(--blue);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 20px; color: var(--blue);
+    }
+    h1 { font-size: 24px; font-weight: 800; letter-spacing: 0.2px; }
+    .subtitle { color: var(--muted); font-size: 13.5px; margin-top: 4px; }
+    .cmd-box {
+      background: #090d16;
+      border: 1px solid var(--border);
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-family: Consolas, monospace;
+      font-size: 12.5px;
+      color: var(--blue);
+    }
+    .cmd-box span { color: var(--muted); display: block; font-size: 11px; margin-bottom: 3px; font-family: inherit; }
+
+    /* Navigation Tabs */
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .tab-btn {
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      padding: 10px 20px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 13.5px;
+      font-weight: 700;
+      transition: all 0.2s;
+    }
+    .tab-btn:hover { color: var(--text); border-color: #475569; }
+    .tab-btn.active {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--blue);
+      border-color: var(--blue);
+      box-shadow: 0 0 18px rgba(56, 189, 248, 0.15);
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Master-detail layout for interactive phases */
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: 1.55fr 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 1200px) {
+      .workspace-grid { grid-template-columns: 1fr; }
+    }
+
+    .pipeline-section-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1.4px;
+      color: var(--muted);
+      font-weight: 800;
+      margin: 18px 0 12px;
+    }
+    .pipeline-section-title:first-child { margin-top: 0; }
+
+    .phases-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+    }
+    @media (max-width: 760px) {
+      .phases-grid { grid-template-columns: 1fr; }
+    }
+
+    .phase-card {
+      background: rgba(30, 41, 59, 0.65);
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      position: relative;
+    }
+    .phase-card:hover {
+      transform: translateY(-2px);
+      border-color: #64748b;
+      background: rgba(30, 41, 59, 0.9);
+    }
+    .phase-card.selected {
+      border-color: var(--blue);
+      background: rgba(30, 58, 138, 0.35);
+      box-shadow: 0 8px 24px rgba(2, 132, 199, 0.22);
+    }
+    .phase-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .phase-num {
+      font-size: 11px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--blue);
+    }
+    .phase-file {
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .phase-title { font-size: 16px; font-weight: 800; margin-bottom: 6px; }
+    .phase-summary { font-size: 12.5px; color: #cbd5e1; margin-bottom: 10px; }
+    .badge-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 5px;
+    }
+    .badge-gate { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.5); }
+    .badge-agent { background: rgba(168, 85, 247, 0.2); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.45); }
+    .badge-cli { background: rgba(16, 185, 129, 0.18); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.4); font-family: Consolas, monospace; }
+
+    /* Detail Inspector Panel */
+    .inspector {
+      background: rgba(17, 24, 39, 0.92);
+      border: 1.5px solid var(--blue);
+      border-radius: 14px;
+      padding: 24px;
+      position: sticky;
+      top: 24px;
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+    }
+    .inspector-tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--blue);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+    .inspector h2 { font-size: 21px; font-weight: 800; margin-bottom: 10px; }
+    .inspector p.lead { color: #cbd5e1; font-size: 13.5px; margin-bottom: 16px; }
+    .inspector h4 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--amber);
+      margin: 16px 0 8px;
+    }
+    .inspector ul { padding-left: 18px; color: #e2e8f0; font-size: 13px; }
+    .inspector li { margin-bottom: 6px; }
+    .inspector code {
+      font-family: Consolas, monospace;
+      background: #090d16;
+      color: #7dd3fc;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .inspector-box {
+      background: #090d16;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-top: 12px;
+      font-size: 12.5px;
+    }
+
+    /* Tab 2 Responsive Board Styles (No SVG text clipping!) */
+    .board-stage-label {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1.4px;
+      color: #64748b;
+      margin: 22px 0 12px 2px;
+    }
+    .board-stage-label:first-child { margin-top: 0; }
+    .board-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(320px, 1fr));
+      gap: 18px;
+      align-items: stretch;
+    }
+    @media (max-width: 1500px) { .board-row { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 800px) { .board-row { grid-template-columns: 1fr; } }
+
+    .b-card {
+      border-radius: 12px;
+      border: 1.5px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+      cursor: pointer;
+      transition: transform 0.16s ease, box-shadow 0.16s ease;
+      overflow: hidden;
+    }
+    .b-card:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55); }
+    .b-card.t-blue { background: linear-gradient(180deg, rgba(30, 58, 138, 0.42) 0%, rgba(15, 23, 42, 0.92) 100%); border-color: var(--blue); }
+    .b-card.t-indigo { background: linear-gradient(180deg, rgba(49, 46, 129, 0.45) 0%, rgba(15, 23, 42, 0.92) 100%); border-color: var(--indigo); }
+    .b-card.t-emerald { background: linear-gradient(180deg, rgba(6, 95, 70, 0.45) 0%, rgba(15, 23, 42, 0.92) 100%); border-color: var(--emerald); }
+    .b-card.t-amber { background: linear-gradient(180deg, rgba(120, 53, 15, 0.48) 0%, rgba(15, 23, 42, 0.92) 100%); border-color: var(--amber); }
+
+    .b-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 15px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .t-blue .b-head { background: rgba(2, 132, 199, 0.25); color: #38bdf8; }
+    .t-indigo .b-head { background: rgba(79, 70, 229, 0.25); color: #a5b4fc; }
+    .t-emerald .b-head { background: rgba(5, 150, 105, 0.25); color: #6ee7b7; }
+    .t-amber .b-head { background: rgba(217, 119, 6, 0.28); color: #fde047; }
+    .b-title { font-size: 14.5px; font-weight: 800; }
+    .b-file {
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 5px;
+      background: #090d16;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      color: #cbd5e1;
+      white-space: nowrap;
+    }
+    .b-body { padding: 13px 15px; display: flex; flex-direction: column; gap: 9px; flex: 1; font-size: 12px; color: #cbd5e1; }
+    .b-step { font-weight: 700; color: #e2e8f0; margin-bottom: 2px; font-size: 12.5px; }
+    .b-list { list-style: none; display: flex; flex-direction: column; gap: 3px; }
+    .b-pill-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; margin-top: 3px; }
+    .b-pill { padding: 5px 9px; border-radius: 5px; font-size: 11px; font-weight: 700; text-align: center; }
+    .bp-green { background: #064e3b; border: 1px solid #10b981; color: #6ee7b7; }
+    .bp-red { background: #7f1d1d; border: 1px solid #f87171; color: #fca5a5; }
+    .bp-gold { background: #713f12; border: 1px solid #facc15; color: #fef08a; }
+    .bp-blue { background: #1e3a8a; border: 1px solid #38bdf8; color: #bae6fd; }
+    .bp-cyan { background: #164e63; border: 1px solid #22d3ee; color: #a5f3fc; }
+    .bp-pink { background: #500724; border: 1px solid #f472b6; color: #fbcfe8; }
+    .bp-purple { background: #3b0764; border: 1px solid #c084fc; color: #e9d5ff; }
+    .bp-box { padding: 7px 10px; border-radius: 6px; text-align: left; font-size: 11px; line-height: 1.35; }
+    .b-foot { margin: 0 13px 11px; padding: 6px 11px; background: #090d16; border: 1px solid #1e293b; border-radius: 5px; font-size: 11px; color: var(--muted); }
+    .b-foot strong { color: #cbd5e1; }
+
+    /* Cards Grid for Agents & Hooks */
+    .cards-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 16px;
+    }
+    .info-card {
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+    }
+    .info-card h3 { font-size: 16px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    .info-card p { font-size: 13px; color: #cbd5e1; margin-bottom: 10px; }
+    .info-card .meta { font-size: 11.5px; color: var(--muted); font-family: Consolas, monospace; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="logo">SA</div>
+      <div>
+        <h1>Software-Architector v3.6.0 — Plugin Workflow and Architecture</h1>
+        <div class="subtitle">Interactive map: 8 run phases · 5 hard gates (G1–G5) · 8 subagents · invariant protection (Guard Hooks)</div>
+      </div>
+    </div>
+    <div class="cmd-box">
+      <span>Entry point (Claude Code):</span>
+      /software-architector:build [full|semi|interview] [strict|deep] &lt;idea or brief.md&gt;
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('interactive', this)">1. Interactive phase guide (0–7)</button>
+    <button class="tab-btn" onclick="switchTab('diagram', this)">2. Full graphical flowchart</button>
+    <button class="tab-btn" onclick="switchTab('agents', this)">3. Roles of the 8 subagents and 5 gates</button>
+    <button class="tab-btn" onclick="switchTab('hooks', this)">4. Hard protection (Guard Hooks) and Dashboard</button>
+  </div>
+
+  <!-- TAB 1: INTERACTIVE PIPELINE -->
+  <div id="tab-interactive" class="tab-panel active">
+    <div class="workspace-grid">
+      <div>
+        <div class="pipeline-section-title">Stage I · Initialization, Requirements, Briefing and Spec (click a card)</div>
+        <div class="phases-grid">
+          <div class="phase-card selected" onclick="selectPhase(0, this)">
+            <div class="phase-header">
+              <span class="phase-num">PHASE 0</span>
+              <span class="phase-file">phases/0-preflight.md</span>
+            </div>
+            <div class="phase-title">Preflight</div>
+            <div class="phase-summary">Repository survey, project memory setup, run initialization and a check of all 8 hooks.</div>
+            <div class="badge-row">
+              <span class="badge badge-cli">bv init</span>
+              <span class="badge badge-cli">bv doctor</span>
+              <span class="badge badge-cli">bv serve</span>
+            </div>
+          </div>
+
+          <div class="phase-card" onclick="selectPhase(1, this)">
+            <div class="phase-header">
+              <span class="phase-num">PHASE 1</span>
+              <span class="phase-file">phases/1-manifest.md</span>
+            </div>
+            <div class="phase-title">Manifest (requirements manifest)</div>
+            <div class="phase-summary">Secret filtering, saving the immutable brief and splitting the task into checkable rows.</div>
+            <div class="badge-row">
+              <span class="badge badge-cli">brief-YYYY-MM-DD.md</span>
+              <span class="badge badge-cli">manifest.md</span>
+              <span class="badge badge-gate">Scenarios S##</span>
+            </div>
+          </div>
+
+          <div class="phase-card" onclick="selectPhase(2, this)">
+            <div class="phase-header">
+              <span class="phase-num">PHASE 2</span>
+              <span class="phase-file">phases/2-briefing.md</span>
+            </div>
+            <div class="phase-title">Briefing (settling the forks)</div>
+            <div class="phase-summary">Self-briefing (full), questions on forks (semi) or an adversarial interview of 7 questions (interview/deep).</div>
+            <div class="badge-row">
+              <span class="badge badge-gate">GATE G1 at exit</span>
+              <span class="badge badge-cli">ASSUMPTION / dropped</span>
+            </div>
+          </div>
+
+          <div class="phase-card" onclick="selectPhase(3, this)">
+            <div class="phase-header">
+              <span class="phase-num">PHASE 3</span>
+              <span class="phase-file">phases/3-spec.md</span>
+            </div>
+            <div class="phase-title">Spec (Specification and Interfaces)</div>
+            <div class="phase-summary">Scouting the code and the web, deepening the requirements R##.n, fixing the check commands and the coverage comparison.</div>
+            <div class="badge-row">
+              <span class="badge badge-agent">bv-scout</span>
+              <span class="badge badge-agent">bv-research</span>
+              <span class="badge badge-agent">bv-coverage</span>
+              <span class="badge badge-gate">GATE G2</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pipeline-section-title">Stage II · Planning, Subagent Development, Review and Blind Acceptance</div>
+        <div class="phases-grid">
+          <div class="phase-card" onclick="selectPhase(4, this)">
+            <div class="phase-header">
+              <span class="phase-num">PHASE 4</span>
+              <span class="phase-file">phases/4-plan.md</span>
+            </div>
+            <div class="phase-title">Plan (ticket slicing and Waves)</div>
+            <div class="phase-summary">Tier estimate (T0–T3), split into tickets with non-overlapping zones, wave calculation and the first plan commit.</div>
+            <div class="badge-row">
+              <span class="badge badge-gate">GATE G3 (bv tickets)</span>
+              <span class="badge badge-cli">bv commit plan</span>
+            </div>
+          </div>
+
+          <div class="phase-card" onclick="selectPhase(5, this)">
+            <div class="phase-header">
+              <span class="phase-num">PHASE 5</span>
+              <span class="phase-file">phases/5-build.md</span>
+            </div>
+            <div class="phase-title">Build (ticket-by-ticket development)</div>
+            <div class="phase-summary">Parallel start of up to 3 executors (TDD), contract intake, automatic test run on commit and spot review.</div>
+            <div class="badge-row">
+              <span class="badge badge-agent">bv-executor</span>
+              <span class="badge badge-agent">bv-reviewer (spot)</span>
+              <span class="badge badge-cli">bv contract / commit</span>
+            </div>
+          </div>
+
+          <div class="phase-card" onclick="selectPhase(6, this)">
+            <div class="phase-header">
+              <span class="phase-num">PHASE 6</span>
+              <span class="phase-file">phases/6-review.md</span>
+            </div>
+            <div class="phase-title">Branch Review &amp; Security/Dead-Code Audit</div>
+            <div class="phase-summary">Mechanical scan for dead code and SAST/CVE, branch review by the Opus model and mandatory cleanup through ticket F1.</div>
+            <div class="badge-row">
+              <span class="badge badge-cli">bv audit (Dead Code + SAST)</span>
+              <span class="badge badge-agent">bv-reviewer (branch)</span>
+              <span class="badge badge-cli">Ticket F1</span>
+            </div>
+          </div>
+
+          <div class="phase-card" onclick="selectPhase(7, this)">
+            <div class="phase-header">
+              <span class="phase-num">PHASE 7</span>
+              <span class="phase-file">phases/7-final.md</span>
+            </div>
+            <div class="phase-title">Final (Blind Acceptance and Delivery)</div>
+            <div class="phase-summary">Check in a clean clone (G5), blind acceptance without the spec (G4), ADR/memory writing and the final verdict of bv finish.</div>
+            <div class="badge-row">
+              <span class="badge badge-gate">GATE G5 (verify)</span>
+              <span class="badge badge-gate">GATE G4 (blind)</span>
+              <span class="badge badge-agent">bv-blind / adr / memory</span>
+              <span class="badge badge-cli">bv finish</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detail Panel -->
+      <div class="inspector" id="phase-inspector">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 2: FULL GRAPHICAL DIAGRAM (RESPONSIVE HTML/CSS CARDS — NO CLIPPING!) -->
+  <div id="tab-diagram" class="tab-panel">
+    <div class="board-stage-label">STAGE I. INITIALIZATION, REQUIREMENTS MANIFEST, BRIEFING AND SPEC (click a card to open details)</div>
+    <div class="board-row">
+      <div class="b-card t-blue" onclick="jumpToPhase(0)">
+        <div>
+          <div class="b-head"><span class="b-title">PHASE 0 · Preflight</span><span class="b-file">0-preflight.md</span></div>
+          <div class="b-body">
+            <div><div class="b-step">1. Repository survey (Read-Only)</div><ul class="b-list"><li>• Git status, stack, past runs and PROGRESS.md</li></ul></div>
+            <div><div class="b-step">2. Project memory</div><ul class="b-list"><li>• Find the owner of CLAUDE.md / AGENTS.md</li></ul></div>
+            <div><div class="b-step">3. Initialization and diagnostics</div><ul class="b-list"><li style="color:#38bdf8;font-family:Consolas,monospace;">• bv init → .software-architector/runs/…--wip</li><li style="color:#38bdf8;font-family:Consolas,monospace;">• bv doctor (checks git, bin/bv and 8 hooks)</li><li>• Auto-start of the VS Code panel and web server (bv serve)</li></ul></div>
+          </div>
+        </div>
+        <div class="b-foot"><strong>Output:</strong> state.json · dashboard address · memory skeleton</div>
+      </div>
+
+      <div class="b-card t-blue" onclick="jumpToPhase(1)">
+        <div>
+          <div class="b-head"><span class="b-title">PHASE 1 · Manifest</span><span class="b-file">1-manifest.md</span></div>
+          <div class="b-body">
+            <div><div class="b-step">1. Secret filter before writing</div><ul class="b-list"><li>• Keys and tokens → [REDACTED:&lt;VAR&gt;] + .env.example</li></ul></div>
+            <div><div class="b-step">2. Task source with no edits</div><ul class="b-list"><li>• Verbatim text in brief-YYYY-MM-DD.md</li></ul></div>
+            <div><div class="b-step">3. Split into atoms in the manifest.md table</div><ul class="b-list"><li>• End-to-end scenarios S## (at least 1 required)</li><li>• Requirements R## (from the brief) and R##i (implied)</li><li>• Rows are not erased without a user quote</li></ul></div>
+          </div>
+        </div>
+        <div class="b-foot"><strong>Output:</strong> brief-YYYY-MM-DD.md · manifest.md (status: open)</div>
+      </div>
+
+      <div class="b-card t-indigo" onclick="jumpToPhase(2)">
+        <div>
+          <div class="b-head"><span class="b-title">PHASE 2 · Briefing</span><span class="b-file">2-briefing.md</span></div>
+          <div class="b-body">
+            <div><div class="b-step">Depends on the run mode:</div><ul class="b-list"><li style="color:#38bdf8;">• full: self-briefing (skip) → decisions go to ASSUMPTION</li><li style="color:#a5b4fc;">• semi: up to 4 questions per round, forks only</li><li style="color:#f472b6;">• interview / deep: 7 adversarial questions about the task</li></ul></div>
+            <div><div class="b-step">Rules for recording answers:</div><ul class="b-list"><li>• Additions and cancellations — verbatim in ## Additions of the brief</li><li>• Paid external services → adapter + stub (placeholder)</li><li>• Dropping a requirement → status dropped with a quote</li></ul></div>
+          </div>
+        </div>
+        <div class="b-foot"><strong>Output:</strong> refined manifest.md · <strong>GATE G1</strong></div>
+      </div>
+
+      <div class="b-card t-indigo" onclick="jumpToPhase(3)">
+        <div>
+          <div class="b-head"><span class="b-title">PHASE 3 · Spec</span><span class="b-file">3-spec.md</span></div>
+          <div class="b-body">
+            <div>
+              <div class="b-step">1. Scouting before writing (in parallel):</div>
+              <div class="b-pill-row">
+                <div class="b-pill bp-green">🤖 bv-scout (Haiku) → notes.md</div>
+                <div class="b-pill bp-red">🌐 bv-research (Sonnet) → web</div>
+              </div>
+            </div>
+            <div><div class="b-step">2. Spec and deepening (spec.md + R##.n)</div><ul class="b-list"><li>• 8 axes of each requirement (errors, emptiness, growth…)</li></ul></div>
+            <div><div class="b-step">3. Module boundaries and commands (interfaces.md)</div><ul class="b-list"><li style="color:#38bdf8;font-family:Consolas,monospace;">• setupCmd (with consent!) · checkCmd · e2eCmd</li></ul></div>
+            <div><div class="b-step">4. Independent coverage comparison (Gate G2):</div><div class="b-pill bp-gold" style="margin-top:3px;">🔍 bv-coverage (Sonnet): briefs vs spec.md → bv gate G2</div></div>
+          </div>
+        </div>
+        <div class="b-foot"><strong>Output:</strong> spec.md · interfaces.md · <strong>GATE G2 PASSED</strong></div>
+      </div>
+    </div>
+
+    <div class="board-stage-label">STAGE II. WAVE PLANNING, SUBAGENT DEVELOPMENT, SECURITY AUDIT AND BLIND ACCEPTANCE</div>
+    <div class="board-row">
+      <div class="b-card t-emerald" onclick="jumpToPhase(4)">
+        <div>
+          <div class="b-head"><span class="b-title">PHASE 4 · Plan (Plan and Tickets)</span><span class="b-file">4-plan.md</span></div>
+          <div class="b-body">
+            <div><div class="b-step">1. Size estimate (Tier T0–T3)</div><ul class="b-list"><li>• 1 executor ≈ 3,000 lines (T0: 1 ticket … T3: 7–12)</li></ul></div>
+            <div><div class="b-step">2. Slicing into tickets (tickets/NN-slug.md)</div><ul class="b-list"><li>• Ticket 01: skeleton, schemas and dependency install</li><li>• Isolated file zones (Zone) without overlap</li><li>• Wave calculation: wave = 1 + max(wave of dependencies)</li></ul></div>
+            <div><div class="b-step">3. Plan publication and first commit</div><ul class="b-list"><li style="color:#38bdf8;font-family:Consolas,monospace;">• bv tickets (gate G3 check)</li><li style="color:#38bdf8;font-family:Consolas,monospace;">• bv commit plan → fix baseCommit</li><li>• Freeze of the setupCmd / checkCmd / e2eCmd commands</li></ul></div>
+          </div>
+        </div>
+        <div class="b-foot"><strong>Output:</strong> tickets/*.md · in-ticket · <strong>GATE G3</strong></div>
+      </div>
+
+      <div class="b-card t-emerald" onclick="jumpToPhase(5)">
+        <div>
+          <div class="b-head"><span class="b-title">PHASE 5 · Build</span><span class="b-file">5-build.md</span></div>
+          <div class="b-body">
+            <div><div class="b-step">1. Start the ready tickets (up to 3 in parallel):</div><div class="b-pill bp-blue" style="margin-top:3px;">🛠️ bv-executor (Sonnet / Strong): TDD (Red → Green) in its own Zone</div></div>
+            <div><div class="b-step">2. Strict intake of each ticket by the orchestrator:</div><ul class="b-list"><li style="color:#38bdf8;font-family:Consolas,monospace;">① bv contract &lt;id&gt; (STATUS, TESTS, REDPROOF, REQUIREMENTS)</li><li>② Check git status (no write outside the zone) + interfaces.md</li><li style="color:#38bdf8;font-family:Consolas,monospace;">③ bv commit &lt;id&gt; → runs checkCmd ITSELF, checks the test count</li></ul></div>
+            <div><div class="b-step">3. Spot review (Review: yes — foundation / risks):</div><div class="b-pill bp-cyan" style="margin-top:3px;">🧐 bv-reviewer (Opus, spot): commit check → bv ticket done</div></div>
+            <div><strong style="color:#fb7185;">↺ Repair loop (up to 2 times):</strong> bv handoff → same or fresh agent</div>
+          </div>
+        </div>
+        <div class="b-foot"><strong>Output:</strong> atomic ticket commits · updated interfaces.md</div>
+      </div>
+
+      <div class="b-card t-amber" onclick="jumpToPhase(6)">
+        <div>
+          <div class="b-head"><span class="b-title">PHASE 6 · Branch Review &amp; Audit</span><span class="b-file">6-review.md</span></div>
+          <div class="b-body">
+            <div><div class="b-step">1. Mechanical pre-filter (bv audit):</div><ul class="b-list"><li>• Dead code: orphan files, exports, extra packages</li><li>• SAST &amp; CVE: dangerous calls (eval/SQL/shell) + package audit</li></ul></div>
+            <div><div class="b-step">2. Review of the whole branch (baseCommit..HEAD):</div><div class="b-pill bp-cyan" style="margin-top:3px;">🧐 bv-reviewer (Opus, branch): code + security + audit</div></div>
+            <div><div class="b-step">3. Verdict review and hard rules:</div><ul class="b-list"><li style="color:#fb7185;">• FIX NOW: all security holes + removal of dead code</li><li style="color:#fcd34d;">• REPORT → into the final report · DROP → concern dismissed</li></ul></div>
+            <div><div class="b-step">4. Repair and cleanup through the single ticket F1:</div><ul class="b-list"><li>• Ticket F1 → bv-executor → bv commit F1 → review of F1 (repair)</li></ul></div>
+          </div>
+        </div>
+        <div class="b-foot">Without a clean audit and the bv-reviewer journal, stage 7 stays closed</div>
+      </div>
+
+      <div class="b-card t-amber" onclick="jumpToPhase(7)">
+        <div>
+          <div class="b-head"><span class="b-title">PHASE 7 · Final (Blind Acceptance)</span><span class="b-file">7-final.md</span></div>
+          <div class="b-body">
+            <div class="bp-box" style="background:#090d16;border:1.5px solid #f59e0b;color:#cbd5e1;">
+              <strong style="color:#fbbf24;display:block;">GATE G5 · Clean clone (bv verify)</strong>
+              Clone of HEAD without .software-architector → setupCmd + checkCmd + e2eCmd
+            </div>
+            <div class="bp-box" style="background:#431407;border:1.5px solid #fb923c;color:#fed7aa;">
+              <strong style="color:#fdba74;display:block;">GATE G4 · Blind acceptance (bv blind-clone + bv-blind)</strong>
+              🕵️ bv-blind (Opus): clone without git history and without the spec, briefs only! Runs the project itself, walks through S## and writes the JSON verdict to the journal
+            </div>
+            <div class="b-pill-row">
+              <div class="b-pill bp-pink">📐 bv-adr (Haiku): ADR</div>
+              <div class="b-pill bp-purple">🧠 bv-memory: AGENTS.md</div>
+            </div>
+            <ul class="b-list">
+              <li style="color:#fb7185;font-weight:700;">• Mismatch at G5/G4 → Repair round F&lt;n&gt; (max 2 rounds)</li>
+              <li style="color:#10b981;font-family:Consolas,monospace;font-weight:700;">• Final: bv finish → commit «build delivered» + Report</li>
+            </ul>
+          </div>
+        </div>
+        <div class="b-foot" style="background:#064e3b;border-color:#10b981;color:#ecfdf5;text-align:center;">
+          <strong>3 OUTCOMES: «Build delivered» · «Delivered, except: …» · «Closed WITHOUT acceptance»</strong><br/>
+          <span style="color:#a7f3d0;font-size:10.5px;">Only bv finish gives the verdict, from the facts in the journal and the exit codes</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 3: AGENTS & GATES -->
+  <div id="tab-agents" class="tab-panel">
+    <div class="pipeline-section-title">8 Specialized Subagents (agents/bv-*.md)</div>
+    <div class="cards-3">
+      <div class="info-card">
+        <h3><span>🛠️ bv-executor</span> <span class="badge badge-agent">Sonnet / Session</span></h3>
+        <p>Implements exactly one ticket by the Test-First principle (first a failing test → REDPROOF, then the code). Writes strictly inside the file zone of its ticket.</p>
+        <div class="meta">Tools: Read, Write, Edit, Bash, Grep, Glob · Returns a contract of ≤ 25 lines</div>
+      </div>
+      <div class="info-card">
+        <h3><span>🧐 bv-reviewer</span> <span class="badge badge-agent">Opus (Read-Only)</span></h3>
+        <p>Checks the code along 3 axes (Manifest, Spec, Craft) and a security checklist. Works in the modes <code>spot</code> (one ticket), <code>repair</code> and <code>branch</code> (the whole branch).</p>
+        <div class="meta">Tools: Read, Grep, Glob, Bash (read only and one-line probes)</div>
+      </div>
+      <div class="info-card">
+        <h3><span>🕵️ bv-blind</span> <span class="badge badge-agent">Opus (Gate G4)</span></h3>
+        <p>Independent acceptor. Works in a clean clone without git history and without access to <code>spec.md</code> or <code>manifest.md</code>. Compares the live run with the words of the brief.</p>
+        <div class="meta">Returns a JSON verdict (run, outcome.solved, requirements, unlisted)</div>
+      </div>
+      <div class="info-card">
+        <h3><span>🔍 bv-coverage</span> <span class="badge badge-agent">Sonnet (Gate G2)</span></h3>
+        <p>Compares the verbatim user briefs with <code>spec.md</code>. Looks for missed (missing), half-covered (half) and extra (extra) features.</p>
+        <div class="meta">Tools: Read, Grep, Glob · A hook blocks access to the other files of the run</div>
+      </div>
+      <div class="info-card">
+        <h3><span>🌐 bv-research</span> <span class="badge badge-agent">Sonnet (Web)</span></h3>
+        <p>Checks on the internet the current library versions, exact signatures of external APIs, limits and licenses before the spec is written.</p>
+        <div class="meta">Tools: WebSearch, WebFetch, Read, Write (writes only research.md)</div>
+      </div>
+      <div class="info-card">
+        <h3><span>🤖 bv-scout</span> <span class="badge badge-agent">Haiku</span></h3>
+        <p>Studies the existing code of the repository before the spec is written: modules, conventions, run commands, exact entity names and traps.</p>
+        <div class="meta">Tools: Read, Grep, Glob, Bash (read-only), Write (only notes.md)</div>
+      </div>
+      <div class="info-card">
+        <h3><span>🧠 bv-memory</span> <span class="badge badge-agent">Haiku</span></h3>
+        <p>Updates the block in <code>AGENTS.md</code> (or prepares <code>memory-proposal.md</code>) only with commands verified in blind acceptance and the current structure.</p>
+        <div class="meta">Called in Phase 7 after G4 passes</div>
+      </div>
+      <div class="info-card">
+        <h3><span>📐 bv-adr</span> <span class="badge badge-agent">Haiku (Tier T2+)</span></h3>
+        <p>Records architecture decisions that are costly to reverse in <code>docs/adr/NNNN-*.md</code> and keeps the glossary of project terms in <code>CONTEXT.md</code>.</p>
+        <div class="meta">Reads only spec.md, manifest.md, interfaces.md and notes.md</div>
+      </div>
+    </div>
+
+    <div class="pipeline-section-title" style="margin-top: 28px;">5 Programmatic Gates (checked by the bv tool against facts, not on trust)</div>
+    <div class="cards-3">
+      <div class="info-card">
+        <h3><span>Gate G1 — Manifest completeness</span> <span class="badge badge-gate">Transition 2 → 3</span></h3>
+        <p>Checked when <code>bv stage spec start</code> is called. The manifest must hold at least one end-to-end scenario <code>S##</code> and no row with status <code>open</code> without an explanation.</p>
+      </div>
+      <div class="info-card">
+        <h3><span>Gate G2 — Spec coverage</span> <span class="badge badge-gate">Phase 3</span></h3>
+        <p><code>bv gate G2</code> itself takes the list of remarks from the final answer of the <code>bv-coverage</code> agent in the hook journal. The orchestrator must close each remark by an exact quote.</p>
+      </div>
+      <div class="info-card">
+        <h3><span>Gate G3 — Plan correctness</span> <span class="badge badge-gate">Phase 4</span></h3>
+        <p><code>bv tickets</code> checks that ticket numbers are unique, no requirement is lost, the dependency waves are in the right order and file zones in one wave do not overlap.</p>
+      </div>
+      <div class="info-card">
+        <h3><span>Gate G5 — Clean clone</span> <span class="badge badge-gate">Phase 7 (Step 1)</span></h3>
+        <p><code>bv verify</code> clones the current <code>HEAD</code> into a temporary folder without <code>.software-architector</code>, runs <code>setupCmd</code>, <code>checkCmd</code> and <code>e2eCmd</code> and checks the exit codes and the test count.</p>
+      </div>
+      <div class="info-card">
+        <h3><span>Gate G4 — Blind acceptance</span> <span class="badge badge-gate">Phase 7 (Step 2)</span></h3>
+        <p><code>bv gate G4</code> reads the JSON verdict of the <code>bv-blind</code> agent directly from the <code>SubagentStop</code> hook journal. Requires a green G5 on the same commit and the answer <code>outcome.solved: true</code>.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 4: HOOKS & DASHBOARD -->
+  <div id="tab-hooks" class="tab-panel">
+    <div class="pipeline-section-title">8 Lifecycle Hooks (hooks/hooks.json → scripts/guard.py &amp; scripts/events.py)</div>
+    <div class="cards-3">
+      <div class="info-card">
+        <h3><span>1. PreToolUse (Main barrier)</span> <span class="badge badge-cli">bv hook pre-tool</span></h3>
+        <p>Intercepts Write, Edit, Read, Grep, Glob, Bash, PowerShell, WebSearch, WebFetch, Agent and MCP. If the check fails or exceeds the timeout, a call that writes is blocked (fail-closed).</p>
+      </div>
+      <div class="info-card">
+        <h3><span>2. Role and zone isolation</span> <span class="badge badge-gate">Write protection</span></h3>
+        <p>The orchestrator cannot change project code. The executor (<code>bv-executor</code>) can write only to the <code>Zone</code> of its ticket. No agent can edit <code>state.json</code> or the <code>live/</code> journal.</p>
+      </div>
+      <div class="info-card">
+        <h3><span>3. Secret and Git protection</span> <span class="badge badge-gate">Data protection</span></h3>
+        <p>Reading <code>.env</code> is blocked. API keys/tokens are cut out before writing to disk. <code>git push</code>, <code>reset --hard</code>, <code>clean -f</code>, <code>stash</code> and a direct <code>git commit</code> are blocked.</p>
+      </div>
+      <div class="info-card">
+        <h3><span>4. Agent event journal</span> <span class="badge badge-cli">events.py</span></h3>
+        <p>The hooks <code>PostToolUse</code>, <code>PostToolUseFailure</code>, <code>SubagentStart</code> and <code>SubagentStop</code> write each step of an agent to <code>.software-architector/live/&lt;run&gt;/</code> and keep the answers of the checkers for <code>bv</code>.</p>
+      </div>
+      <div class="info-card">
+        <h3><span>5. VS Code panel</span> <span class="badge badge-cli">hooks/register.tsx</span></h3>
+        <p>Opens to the right of the chat automatically. Shows the mode, gates G1–G5, the tree «stage → tickets → agents», the current command of each agent, and the counters of errors <code>✗N</code> and blocks <code>⛔N</code>.</p>
+      </div>
+      <div class="info-card">
+        <h3><span>6. Local Web Dashboard</span> <span class="badge badge-cli">scripts/dashboard.html</span></h3>
+        <p>Starts on <code>127.0.0.1:87NN/?k=&lt;key&gt;</code> through <code>bv serve</code> / <code>bv web</code>. Refreshes every 2 seconds and lets you view the full input and output of every tool call.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const phasesData = [
+      {
+        tag: "PHASE 0 · 0-preflight.md",
+        title: "Preflight — Preparation and diagnostics",
+        lead: "Goal: make sure the repository is ready, create the run structure and check that all protective hooks work.",
+        steps: [
+          "Survey in Read-Only mode: git status, stack manifests, past runs and <code>.software-architector/PROGRESS.md</code>.",
+          "Find the project memory file (<code>AGENTS.md</code> or <code>CLAUDE.md</code>) and its owner.",
+          "Run <code>bv init</code>: initialize git if needed, set up <code>.gitignore</code>, create the run folder <code>.software-architector/runs/&lt;date&gt;-&lt;slug&gt;--wip/</code>.",
+          "Run <code>bv doctor</code>: check git, <code>bin/bv</code>, the <code>state.json</code> schema and that all 8 hooks really fire.",
+          "Start the VS Code panel and the background web dashboard (<code>bv serve --detach</code>)."
+        ],
+        outputs: "state.json · run folder --wip · web dashboard address · AGENTS.md skeleton"
+      },
+      {
+        tag: "PHASE 1 · 1-manifest.md",
+        title: "Manifest — Reference brief and atomization",
+        lead: "Goal: filter out secrets, save the verbatim user request as an immutable reference and split it into atomic checkable rows.",
+        steps: [
+          "Secret filter before any write to disk: keys and tokens are replaced by <code>[REDACTED:&lt;VAR_NAME&gt;]</code>, and the empty names go to <code>.env.example</code>.",
+          "Create <code>brief-YYYY-MM-DD.md</code> with the full user text and no edits (all later additions go to the <code>## Additions</code> section).",
+          "Split into atoms in the <code>manifest.md</code> table: end-to-end user scenarios <code>S##</code> (at least one is required!), direct requirements <code>R##</code> and implied ones <code>R##i</code>.",
+          "Hard rule: no manifest row is ever deleted (only the user can cancel one, with status <code>dropped</code> and a direct quote)."
+        ],
+        outputs: "brief-YYYY-MM-DD.md · manifest.md (all rows in status open)"
+      },
+      {
+        tag: "PHASE 2 · 2-briefing.md",
+        title: "Briefing — Settling the forks and Gate G1",
+        lead: "Goal: close the open questions according to the chosen run mode and prepare the manifest for the gate G1 check.",
+        steps: [
+          "If mode <code>interview</code> or depth <code>deep</code> is chosen: an adversarial pass runs first (7 hard questions about the task: failure, collisions, cost, the second week, etc.).",
+          "Mode <code>full</code>: self-briefing (<code>bv stage briefing skip</code>) — the orchestrator makes the decisions itself and records them as <code>ASSUMPTION</code>; external paid services become adapters with stubs (<code>placeholder</code>).",
+          "Mode <code>semi</code> / <code>interview</code>: rounds of up to 4 questions with a recommended answer, each question tied to a specific manifest row.",
+          "At exit, <code>bv stage spec start</code> is called; it checks <strong>Gate G1</strong> (an <code>S##</code> exists and no unclosed <code>open</code> rows remain)."
+        ],
+        outputs: "Updated manifest.md · additions in the brief · reference.md · passed Gate G1"
+      },
+      {
+        tag: "PHASE 3 · 3-spec.md",
+        title: "Spec — Scouting, Specification and Gate G2",
+        lead: "Goal: study the existing code and the current documentation on the web, write the full spec, fix the check commands and pass the independent coverage comparison.",
+        steps: [
+          "Start two subagents in parallel: <code>bv-scout</code> (writes the code map to <code>notes.md</code>) and <code>bv-research</code> (checks package versions, APIs, limits and licenses on the web → <code>research.md</code>).",
+          "Write <code>spec.md</code> and a deepening pass over 8 dimensions of each requirement → sub-rows <code>R##.n</code>.",
+          "Create <code>interfaces.md</code>: module boundaries and the 3 main commands in <code>bv set</code>: <code>setupCmd</code> (only with the explicit consent of the user!), <code>checkCmd</code> and <code>e2eCmd</code>.",
+          "Start the independent agent <code>bv-coverage</code> (compares the briefs and <code>spec.md</code> without access to the manifest) and close <strong>Gate G2</strong> through <code>bv gate G2</code>."
+        ],
+        outputs: "notes.md · research.md · spec.md · interfaces.md · passed Gate G2"
+      },
+      {
+        tag: "PHASE 4 · 4-plan.md",
+        title: "Plan — Ticket slicing, Waves and Gate G3",
+        lead: "Goal: split the development into independent tickets (~3,000 lines of code per executor) and spread them over non-overlapping file zones and waves.",
+        steps: [
+          "Estimate the project scale and choose the Tier: <code>T0</code> (1 ticket), <code>T1</code> (2 tickets), <code>T2</code> (3–6 tickets), <code>T3</code> (7–12 tickets).",
+          "Create the files <code>tickets/NN-&lt;slug&gt;.md</code>. Ticket 01 always lays the foundation, the schemas and installs all dependencies from <code>spec.md</code>.",
+          "Calculate the waves (<code>wave = 1 + max(wave of dependencies)</code>) and put tickets with overlapping file zones (<code>Zone</code>) into different waves.",
+          "Publish the plan through <code>bv tickets</code> (checks <strong>Gate G3</strong>) and make the first commit <code>bv commit plan</code> (fixes <code>baseCommit</code> and freezes the check commands)."
+        ],
+        outputs: "tickets/NN-*.md · passed Gate G3 · plan commit (baseCommit)"
+      },
+      {
+        tag: "PHASE 5 · 5-build.md",
+        title: "Build — Parallel development and Spot review",
+        lead: "Goal: complete all tickets with executor subagents by TDD, check each ticket with a real test run and do a spot review of the critical parts.",
+        steps: [
+          "Start the ready tickets (up to 3 in flight in parallel): <code>bv ticket start</code> + a call of the <code>bv-executor</code> subagent (the hook lets it write only to the <code>Zone</code> of its ticket).",
+          "The executor works strictly Test-First: writes a test → sees the right failure (<code>REDPROOF</code>) → writes the code → returns the contract.",
+          "Ticket intake step by step: ① <code>bv contract &lt;id&gt;</code> → ② check <code>git status</code> and write the signatures to <code>interfaces.md</code> → ③ <code>bv commit &lt;id&gt;</code> (runs <code>checkCmd</code> itself, reads the test count and creates the commit).",
+          "For foundation and risky tickets (<code>Review: yes</code>), <code>bv-reviewer</code> (Opus) starts in the background in <code>spot</code> mode. On errors the repair loop starts (<code>bv handoff</code>, up to 2 attempts)."
+        ],
+        outputs: "Verified commits of each ticket · updated interfaces.md · closed manifest rows"
+      },
+      {
+        tag: "PHASE 6 · 6-review.md",
+        title: "Branch Review — Security audit, cleanup of extra code and branch review",
+        lead: "Goal: mechanically catch dead/orphan code and dangerous patterns, check the whole diff (baseCommit..HEAD) with the Opus model and force the fixes through ticket F1.",
+        steps: [
+          "<strong>Mechanical pre-filter (<code>bv audit</code>):</strong><ul><li><em>Extra and dead code:</em> search for orphan files, unused exports/functions (left after parallel waves or repairs), dead dependencies in manifests and forgotten <code>console.log</code> / <code>debugger</code> / commented-out blocks.</li><li><em>Security (SAST + CVE):</em> automatic package audit (<code>npm audit</code> / <code>pip-audit</code> / <code>cargo audit</code>) and static search for dangerous primitives (<code>eval</code>, <code>exec</code>, <code>innerHTML</code>, <code>shell=True</code>, SQL interpolation, disabled TLS).</li></ul>",
+          "Start <code>bv-reviewer</code> (Opus) in <code>branch</code> mode: the model gets the full branch diff, the deferred concerns and the pre-filter report.",
+          "Hard classification:<ul><li><code>FIX NOW</code> — any confirmed security hole (SQLi, IDOR, secrets, open CORS) and any dead/unused code or extra package (these cannot just be written to <code>REPORT</code>).</li><li><code>REPORT</code> — non-critical remarks for the user report; <code>DROP</code> — dismissal of false positives.</li></ul>",
+          "If there is <code>FIX NOW</code>: a single cleanup and repair ticket <code>tickets/F1-branch-fixes.md</code> is created → <code>bv-executor</code> → <code>bv commit F1</code> → repeat check by the reviewer."
+        ],
+        outputs: "Commit F1 cleaned of dead code and vulnerabilities · security and review report"
+      },
+      {
+        tag: "PHASE 7 · 7-final.md",
+        title: "Final — Clean clone (G5), Blind acceptance (G4) and Delivery",
+        lead: "Goal: prove with facts that the project builds and works for an outside person, and run an independent blind acceptance strictly by the words of the brief.",
+        steps: [
+          "<strong>Gate G5 (Clean clone):</strong> <code>bv verify</code> clones <code>HEAD</code> into a temporary folder without <code>.software-architector</code> and runs <code>setupCmd</code>, <code>checkCmd</code> and <code>e2eCmd</code>.",
+          "<strong>Gate G4 (Blind acceptance):</strong> <code>bv blind-clone</code> creates a clone without git history and without the spec. The <code>bv-blind</code> agent (Opus) gets only the briefs, runs the project itself, walks through the scenarios <code>S##</code> by hand and returns a JSON verdict, which <code>bv gate G4</code> reads directly from the journal.",
+          "On mismatch (drift), a repair round <code>F&lt;n&gt;</code> starts (up to 2 rounds); then G5 and G4 are resubmitted on the new commit.",
+          "Start <code>bv-adr</code> (ADR + glossary for T2+) and <code>bv-memory</code> (updates <code>AGENTS.md</code>), write <code>PROGRESS.md</code> and call <code>bv finish</code>, which gives the final verdict."
+        ],
+        outputs: "Commit «Software-Architector: build delivered» · ADR · AGENTS.md · PROGRESS.md · Final report"
+      }
+    ];
+
+    function selectPhase(index, el) {
+      document.querySelectorAll('.phase-card').forEach(c => c.classList.remove('selected'));
+      if (el) el.classList.add('selected');
+      const d = phasesData[index];
+      const inspector = document.getElementById('phase-inspector');
+      inspector.innerHTML = `
+        <div class="inspector-tag">${d.tag}</div>
+        <h2>${d.title}</h2>
+        <p class="lead">${d.lead}</p>
+        <h4>What happens inside the phase:</h4>
+        <ul>
+          ${d.steps.map(s => `<li>${s}</li>`).join('')}
+        </ul>
+        <div class="inspector-box">
+          <strong style="color: var(--emerald);">Artifacts and phase output:</strong><br/>
+          <span style="color: #cbd5e1;">${d.outputs}</span>
+        </div>
+      `;
+    }
+
+    function switchTab(tabId, btn) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('tab-' + tabId).classList.add('active');
+      btn.classList.add('active');
+    }
+
+    function jumpToPhase(index) {
+      const firstBtn = document.querySelector('.tab-btn');
+      switchTab('interactive', firstBtn);
+      const cards = document.querySelectorAll('.phase-card');
+      selectPhase(index, cards[index]);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    selectPhase(0, document.querySelector('.phase-card'));
+  </script>
+</body>
+</html>
