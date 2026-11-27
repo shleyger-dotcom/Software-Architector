@@ -1720,6 +1720,38 @@ def verdict_line(st):
     return "Build delivered" + (f", except: {', '.join(st['unproven'])}" if st.get("unproven") else "")
 
 
+def receipt(root, st, landing):
+    """What `bv finish` hands over: files changed since the plan, each ticket's proof and every gate, from git and state."""
+    base = st.get("baseCommit")
+    out = ["Receipt"]
+    if base:
+        files = git(root, "diff", "--name-status", f"{base}..{landing}", "--", ".", ":(exclude).software-architector",
+                    check=False).splitlines()
+        out.append(f"Files changed since the plan ({base[:7]}..{landing[:7]}):")
+        out += [f"  {f}" for f in files] if files else ["  —"]
+    else:
+        out.append("Files changed: unknown, no baseCommit (`bv commit plan` never ran)")
+    out.append("Tickets:" if st["tickets"] else "Tickets: —")
+    for t in st["tickets"]:
+        tests = t.get("tests") or {}
+        out.append(f"  T{t['id']} {t['status']} · commit {(t.get('commit') or '—')[:7]} · tests "
+                   + (f"{tests['passed']}/{tests['failed']}" if tests else "—")
+                   + f" · repairs {t.get('repairs', 0)} · retries {t.get('retries', 0)}")
+    out.append("Gates:")
+    for g in GATES:
+        v = st["gates"].get(g)
+        line = f"  {g} {'✓' if v and v.get('ok') else ('✗' if v else '—')}"
+        if v and v.get("head"):
+            line += f" on {v['head'][:7]}"
+        if v and g == "G4":
+            line += f" · checked {v.get('checked', 0)} · mismatches {len(v.get('mismatches') or [])}"
+        if v and g == "G5":
+            line += "".join(f" · {s['step']} exit {s['exit']} · tests {s.get('tests')}" for s in v.get("steps") or [])
+        out.append(line)
+    out.append(f"  {audit.summary(st['audit'])}" if st.get("audit") else "  no audit")
+    return "\n".join(out)
+
+
 def cmd_finish(root, st, a):
     if st.get("finishedAt"):
         raise Fail("the run is already finished")
@@ -1758,6 +1790,7 @@ def cmd_finish(root, st, a):
         print(f"{verdict_line(st)}: {h}")
     else:
         print(f"Build closed WITHOUT acceptance: {h}\n" + "\n".join(f"! {p}" for p in problems))
+    print(receipt(root, st, h))
     rest = git(root, "status", "--porcelain", check=False)
     if rest:
         print("! left uncommitted (into the report):\n" + rest)

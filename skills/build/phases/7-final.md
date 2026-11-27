@@ -66,5 +66,6 @@ Sections, in this order (an empty section is omitted, except the two marked *):
 10. **Open questions** ← unresolved coverage items
 11. **Project memory** ← the proposal, if the file is the user's
 12. **How to run** — the verified commands · **Where things are** — 3–5 pointers
+13. **Receipt** * ← the `Receipt` block that `bv finish` printed, verbatim in a code block: changed files, tickets, gates, audit. Never retype or shorten it
 
-Secrets only by name; no diffs, file lists or test names.
+Secrets only by name; no diffs, file lists or test names outside the Receipt. The Receipt is the one exception to "never paste logs" in SKILL.md.

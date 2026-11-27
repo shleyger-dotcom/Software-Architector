@@ -581,6 +581,57 @@ class FinishTellsTheTruthTest(Delivery):
         self.assertIn("already finished", self.fails("finish", "--result", "once more"))
 
 
+class ReceiptTest(Delivery):
+    def receipt(self, out):
+        self.assertIn("Receipt", out)
+        return out.split("Receipt", 1)[1]
+
+    def test_delivery_prints_changed_files_tickets_and_every_gate(self):
+        self.plan()
+        self.bv("ticket", "01", "start")
+        # the bug: the check is red. Its size differs from the fix, or a .pyc of the same second and size would stay valid
+        self.write_code(app="def add(a, b):\n    return a - b  # bug\n")
+        self.returned()
+        self.assertIn("project check is red", self.fails("commit", "01", "--tests", "1/0"))
+        self.bv("ticket", "01", "repair", "--note", "add subtracts")
+        self.touch("src/app.py", APP)
+        self.returned()
+        self.bv("commit", "01", "--tests", "1/0")
+        self.review()
+        self.bv("verify")
+        self.agent_ran("bv-blind", last=json.dumps(BLIND_OK))
+        self.bv("gate", "G4")
+        receipt = self.receipt(self.bv("finish", "--result", "numbers add up"))
+        for f in ("src/app.py", "tests/test_app.py", "e2e.py"):
+            self.assertIn(f"A\t{f}", receipt)
+        self.assertNotIn(".software-architector", receipt)
+        self.assertIn("T01 done", receipt)
+        self.assertIn("repairs 1", receipt)
+        for g in bv.GATES:
+            self.assertIn(f"{g} ✓", receipt)
+        self.assertIn("check exit 0 · tests 1", receipt)
+        self.assertIn("e2e exit 0 · tests 1", receipt)
+        self.assertIn("Audit ", receipt)
+
+    def test_closing_without_acceptance_shows_what_is_missing(self):
+        self.plan()
+        self.bv("ticket", "01", "start")
+        self.bv("ticket", "01", "fail", "--note", "no access to the API")
+        receipt = self.receipt(self.bv("finish", "--not-accepted", "--result", "nothing works"))
+        self.assertIn("T01 failed · commit — · tests —", receipt)
+        self.assertIn("Files changed since the plan", receipt)
+        self.assertIn("  —", receipt)  # the plan commit is the last code commit: nothing built
+        self.assertIn("G5 —", receipt)
+        self.assertIn("G4 —", receipt)
+        self.assertIn("no audit", receipt)
+
+    def test_no_plan_commit_is_said_not_guessed(self):
+        st = {"baseCommit": None, "tickets": [], "gates": {g: None for g in bv.GATES}}
+        text = bv.receipt(self.root, st, "abc1234")
+        self.assertIn("no baseCommit", text)
+        self.assertIn("Tickets: —", text)
+
+
 class ProcessCannotBeSkippedTest(Delivery):
     def test_repair_cannot_be_closed_without_a_new_commit(self):
         self.plan()
