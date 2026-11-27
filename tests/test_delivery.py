@@ -38,6 +38,7 @@ class Delivery(Base):
         self.bv("set", f"checkCmd={check or PY + ' -m unittest discover -s tests'}", f"e2eCmd={PY} e2e.py", SCENARIOS)
         self.bv("tickets")
         self.bv("commit", "plan")
+        self.bv("stage", "plan", "start")
         self.bv("stage", "build", "start")
 
     def write_code(self, app=APP):
@@ -708,8 +709,8 @@ class StageReceiptTest(Delivery):
         self.assertIn("Receipt — stage Acceptance", out)
         receipts = self.state()["receipts"]
         by_stage = {r.split("(")[0].removeprefix("Receipt — stage ").strip(): r for r in receipts}
-        # this scripted run jumps over Plan (`skipped`): a stage that never ran leaves no receipt
-        self.assertEqual(list(by_stage), ["Preflight", "Specification", "Build", "Code review", "Acceptance"])
+        # this scripted run jumps over Requirements and Briefing (`skipped`): a stage that never ran leaves no receipt
+        self.assertEqual(list(by_stage), ["Preflight", "Specification", "Plan", "Build", "Code review", "Acceptance"])
         self.assertIn("not applicable", by_stage["Specification"])
         build = by_stage["Build"]
         for part in ("A\tsrc/app.py", "T01 done", "audit blocker 0, high 0"):

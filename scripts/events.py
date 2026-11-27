@@ -14,6 +14,7 @@ import guard
 OUT_CAP = 1_000_000  # characters kept per call: the pane reads a file of at most 4 MiB
 SUMMARY_CAP = 200
 AGENT_ID = re.compile(r"[^A-Za-z0-9_.-]")
+HANDBACK = "SubagentHandback"  # Claude Code 2.1.332: the tool a subagent ends with; its `message` is the final answer
 
 
 def now():
@@ -100,13 +101,7 @@ def record(event, data, root, st):
     if event in ("agent-start", "agent-stop"):
         e = {"k": event, "type": (data.get("agent_type") or "").split(":")[-1]}
         if event == "agent-stop" and data.get("last_assistant_message"):
-            full = guard.mask_secrets(text_of(data["last_assistant_message"]))
-            e["last"] = full[:4000]
-            # the whole answer: a checker's verdict is read by bv from here, never retyped by the orchestrator
-            d = live_dir(root, st) / "out"
-            d.mkdir(parents=True, exist_ok=True)
-            e["final"] = f"stop-{agent}-{AGENT_ID.sub('_', now())}.txt"
-            (d / e["final"]).write_text(full[:OUT_CAP], "utf-8")
+            e.update(final_answer(root, st, agent, data["last_assistant_message"]))
         append(root, st, agent, e)
         return
     tool, ti = data.get("tool_name", ""), data.get("tool_input") or {}
@@ -120,7 +115,19 @@ def record(event, data, root, st):
         if tool in ("Agent", "Task") and resp.get("agentId"):  # links the spawned agent to its description
             e.update(spawned=AGENT_ID.sub("_", resp["agentId"]), tokens=resp.get("totalTokens"),
                      ms=resp.get("totalDurationMs"), tools=resp.get("totalToolUseCount"))
+        if tool == HANDBACK and event == "post-tool" and ti.get("message"):
+            e.update(final_answer(root, st, agent, ti["message"]))
     append(root, st, agent, e)
+
+
+def final_answer(root, st, agent, message):
+    """The whole answer: a checker's verdict is read by bv from here, never retyped by the orchestrator."""
+    full = guard.mask_secrets(text_of(message))
+    d = live_dir(root, st) / "out"
+    d.mkdir(parents=True, exist_ok=True)
+    name = f"stop-{agent}-{AGENT_ID.sub('_', now())}.txt"
+    (d / name).write_text(full[:OUT_CAP], "utf-8")
+    return {"last": full[:4000], "final": name}
 
 
 def read_agents(root, st):

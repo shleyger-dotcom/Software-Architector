@@ -107,6 +107,7 @@ class Base(unittest.TestCase):
         self.bv("set", f"checkCmd={PASS}", f"e2eCmd={PASS}")
         self.bv("tickets")
         self.bv("commit", "plan")
+        self.bv("stage", "plan", "start")
         self.bv("stage", "build", "start")
 
     def json_file(self, data):
@@ -279,6 +280,27 @@ class PlanTest(Base):
         self.assertEqual((rows["R01.1"]["status"], rows["R01.1"]["where"]), ("in-ticket", "T01"))
         self.assertIn("G2", self.fails("stage", "build", "start"))
 
+    def test_an_empty_second_stop_of_the_same_agent_does_not_hide_its_answer(self):
+        # Claude Code 2.1.332 fires SubagentStop twice for one agent; the second payload has no final message
+        self.bv("stage", "spec", "start")
+        self.agent_ran("bv-coverage", last=NO_FINDINGS)
+        self.run_hook("agent-stop", agent_id=f"bv-coverage-{self.agents_seen}", agent_type="software-architector:bv-coverage")
+        self.assertIn("G2 ✓", self.bv("gate", "G2", "--from", self.json_file({"items": []})))
+
+    def test_an_answer_handed_back_by_tool_is_the_agents_verdict(self):
+        # Claude Code 2.1.332: the agent ends with a SubagentHandback call, and SubagentStop carries no message
+        self.bv("stage", "spec", "start")
+        aid, typ = "cov-hb", "software-architector:bv-coverage"
+        self.run_hook("post-tool", tool_name="Agent", tool_use_id="tu-cov", tool_response={"agentId": aid},
+                      tool_input={"subagent_type": typ, "description": "G2 coverage check"})
+        self.run_hook("agent-start", agent_id=aid, agent_type=typ)
+        found = '```json\n{"items": [{"quote": "report in excel", "kind": "missing"}]}\n```'
+        self.run_hook("post-tool", agent_id=aid, tool_name="SubagentHandback", tool_use_id="tu-hb",
+                      tool_input={"message": found}, tool_response={"success": True})
+        self.run_hook("agent-stop", agent_id=aid, agent_type=typ)
+        out = self.bv("gate", "G2", "--from", self.json_file({"items": [{"quote": "report in excel", "resolution": "fixed"}]}))
+        self.assertIn("findings 1, without a resolution 0", out)
+
 
 class BuildTest(Base):
     def test_full_ticket_flow(self):
@@ -369,6 +391,7 @@ class BuildTest(Base):
         self.bv("set", f"checkCmd={PASS}", f"e2eCmd={PASS}")
         self.bv("tickets")
         self.bv("commit", "plan")
+        self.bv("stage", "plan", "start")
         self.bv("stage", "build", "start")
         for tid, zone in (("01", "src/a/x.py"), ("03", "src/c/x.py")):
             self.bv("ticket", tid, "start")
@@ -559,6 +582,7 @@ class SharedCheckTest(Base):
         self.bv("set", f'checkCmd="{Path(sys.executable).as_posix()}" check.py', f"e2eCmd={PASS}")
         self.bv("tickets")
         self.bv("commit", "plan")
+        self.bv("stage", "plan", "start")
         self.bv("stage", "build", "start")
         self.bv("ticket", "01", "02", "start")
         self.touch("src/a/app.py")
@@ -753,6 +777,57 @@ class GateFinishTest(Base):
         self.assertEqual(subj, bv.NOT_ACCEPTED_SUBJECT)
         self.bv("reopen")
         self.assertTrue(self.state()["dir"].endswith("--wip"))
+
+
+class StageOrderTest(Base):
+    def stage(self, sid):
+        return next(s for s in self.state()["stages"] if s["id"] == sid)
+
+    def test_cannot_jump_over_a_stage_that_cannot_be_skipped(self):
+        self.init()
+        self.write_manifest()
+        self.assertIn("spec", self.fails("stage", "plan", "start"))
+        self.assertEqual(self.stage("spec")["status"], "pending")
+        self.assertEqual(self.stage("plan")["status"], "pending")
+
+    def test_skippable_stages_may_be_jumped(self):
+        self.init()
+        self.write_manifest()
+        self.bv("stage", "spec", "start")
+        self.assertEqual(self.stage("manifest")["status"], "skipped")
+        self.assertEqual(self.stage("briefing")["status"], "skipped")
+
+    def test_step_back_puts_the_later_stage_back_to_waiting(self):
+        self.init()
+        self.write_manifest()
+        self.bv("stage", "spec", "start")
+        self.bv("stage", "plan", "start")
+        self.bv("stage", "spec", "start")
+        plan = self.stage("plan")
+        self.assertEqual((plan["status"], plan["startedAt"]), ("pending", None))
+        self.assertEqual(self.stage("spec")["status"], "active")
+        self.assertFalse(any("stage Plan" in r for r in self.state()["receipts"]))
+
+
+class FixRoundTest(Base):
+    def test_fix_tickets_per_stage_are_limited_for_the_whole_run(self):
+        self.init()
+        self.write_manifest()
+        self.write_ticket("01", reqs="R01", zone="`src/a/`")
+        self.write_ticket("02", reqs="R02, S01", deps="01", zone="`src/b/`", wave=2)
+        self.bv("stage", "spec", "start")
+        self.bv("stage", "plan", "start")
+        for n in (1, 2):
+            self.write_ticket(f"F{n}", reqs="R01", zone=f"`src/f{n}/`", wave=3)
+            self.bv("tickets")
+        self.write_ticket("F3", reqs="R01", zone="`src/f3/`", wave=3)
+        self.assertIn("--not-accepted", self.fails("tickets"))
+        (self.rdir() / "tickets" / "F2-t.md").unlink()  # removing a fix ticket does not give the budget back
+        self.assertIn("--not-accepted", self.fails("tickets"))
+        self.bv("stage", "spec", "start")  # nor does stepping back and entering the stage again
+        self.bv("stage", "plan", "start")
+        self.assertIn("--not-accepted", self.fails("tickets"))
+        self.assertNotIn("F3", [t["id"] for t in self.state()["tickets"]])
 
 
 class ServerTest(Base):

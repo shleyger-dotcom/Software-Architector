@@ -82,7 +82,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 HOOK_EVENTS = ("pre-tool", "post-tool", "tool-failed", "agent-start", "agent-stop", "session-start", "prompt", "stop")
 CONTRACT_KEYS = ("STATUS", "FILES", "TESTS", "REDPROOF", "INTERFACES", "REQUIREMENTS", "CONCERNS", "BLOCKERS")
 CONTRACT_STATUSES = ("DONE", "DONE_WITH_CONCERNS", "BLOCKED", "NEEDS_CONTEXT")
-MAX_PARALLEL, MAX_REPAIRS, MAX_RETRIES = 3, 2, 2
+MAX_PARALLEL, MAX_REPAIRS, MAX_RETRIES, MAX_FIX_ROUNDS = 3, 2, 2, 2
 IN_FLIGHT = ("in-progress", "repair")
 PLAN_PATHS = [".software-architector", ".gitignore", "AGENTS.md", "CLAUDE.md", ".env.example"]
 FINAL_PATHS = [".software-architector", ".gitignore", "AGENTS.md", "CLAUDE.md", ".env.example",
@@ -817,9 +817,10 @@ def last_commit_at(st):
     return max(times, key=dt.datetime.fromisoformat) if times else None
 
 
-def agent_stop(root, st, kind, since, ticket=None):
+def agent_stop(root, st, kind, since, ticket=None, answered=False):
     """The hooks' journal, not the orchestrator's word: the latest stop of an agent of this kind after `since`; with
-    `ticket`, only an agent whose Agent call named that ticket («Review of ticket 02»). None when there is none."""
+    `ticket`, only an agent whose Agent call named that ticket («Review of ticket 02»); with `answered`, only a stop
+    that carries the final answer. None when there is none."""
     agents = events.read_agents(root, st)
     spawned = {e["spawned"]: e.get("s", "") for e in agents.get("main", []) if e.get("spawned")}
     start = dt.datetime.fromisoformat(since) if since else None
@@ -830,7 +831,10 @@ def agent_stop(root, st, kind, since, ticket=None):
         if ticket and guard.ticket_ref(spawned.get(name, "")) != ticket:
             continue
         for e in rows:
-            t = dt.datetime.fromisoformat(e["t"]) if e.get("k") == "agent-stop" else None
+            # Claude Code 2.1.332: the answer comes in a SubagentHandback call, and SubagentStop may carry no message
+            stop = e.get("k") == "agent-stop" and (not answered or e.get("last") or e.get("final"))
+            handback = answered and e.get("tool") == events.HANDBACK and e.get("final")
+            t = dt.datetime.fromisoformat(e["t"]) if stop or handback else None
             if t and (not start or t >= start) and (best is None or t >= best[0]):
                 best = (t, {**e, "agent": name})
     return best and best[1]
@@ -1296,8 +1300,14 @@ def cmd_stage(root, st, a):
     if a.action == "start":
         check_stage_gate(root, st, a.id)
         idx = STAGE_IDS.index(a.id)
+        jumped = [s["id"] for s in st["stages"][:idx] if s["status"] == "pending" and s["id"] not in SKIPPABLE_STAGES]
+        if jumped:
+            raise Fail(f"stage {a.id} cannot start before {', '.join(jumped)}: start {jumped[0]} first "
+                       f"(only these can be skipped: {', '.join(SKIPPABLE_STAGES)})")
         for i, s in enumerate(st["stages"]):
-            if s["status"] == "active" and s["id"] != a.id:
+            if s["status"] == "active" and s["id"] != a.id and i > idx:  # a step back: the later stage reached nothing
+                s.update(status="pending", startedAt=None, finishedAt=None)
+            elif s["status"] == "active" and s["id"] != a.id:
                 s["status"], s["finishedAt"] = "done", now()
                 closed.append(s)
             elif s["status"] == "pending" and i < idx:  # jumped over: show it honestly, not as waiting
@@ -1411,8 +1421,19 @@ def cmd_tickets(root, st):
     if bad:
         save(root, st)
         raise Fail("G3 not passed — plan defects:\n" + "\n".join(f"! {b}" for b in bad))
-    remember_ids(st, rows)
     old = {t["id"]: t for t in st["tickets"]}
+    # a run-level bound: each F ticket gets its own repair limits, so only a count per stage ends the loop.
+    # Keyed by the stage alone: re-entering it gives nothing back; only `bv reopen` (a new brief) starts over
+    sid = next((s["id"] for s in st["stages"] if s["status"] == "active"), "-")
+    new_fix = [t["id"] for t in tickets if t["id"].startswith("F") and t["id"] not in old]
+    used = st.setdefault("fixRounds", {}).get(sid, 0)
+    if used + len(new_fix) > MAX_FIX_ROUNDS:
+        raise Fail(f"repair rounds used up: {used} F tickets in stage {sid} of this run, limit {MAX_FIX_ROUNDS} — "
+                   f"stop repairing and close honestly: `bv finish --not-accepted --result \"<what really works>\"`, "
+                   f"and tell the user first")
+    if new_fix:
+        st["fixRounds"][sid] = used + len(new_fix)
+    remember_ids(st, rows)
     keep = ("status", "startedAt", "finishedAt", "retries", "repairs", "tests", "commit", "note", "placeholders",
             "contract", "proof", "committedAt")
     st["tickets"] = [{**{"status": "pending", "startedAt": None, "finishedAt": None, "retries": 0, "repairs": 0,
@@ -1594,7 +1615,7 @@ def parse_json(text):
 
 def agent_json(root, st, kind, since):
     """A checker's verdict exactly as it returned it: its final answer, which the SubagentStop hook wrote to the journal."""
-    e = agent_stop(root, st, kind, since)
+    e = agent_stop(root, st, kind, since, answered=True)
     if not e:
         raise Fail(f"the journal does not confirm that {kind} finished work: run it and wait for the result")
     p = events.out_path(root, st, e.get("final", ""))
@@ -1936,6 +1957,7 @@ def cmd_reopen(root, st):
         if s["id"] != "preflight":
             s.update(status="active" if s["id"] == "manifest" else "pending", startedAt=None, finishedAt=None)
     st["gates"] = {g: None for g in GATES}
+    st["fixRounds"] = {}
     log(st, "reopen")
     print(f"Run reopened: .software-architector/{st['dir']} — new dated brief, next requirement numbers")
 

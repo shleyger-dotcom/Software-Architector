@@ -31,7 +31,7 @@ A project that cannot be started at all → **Repair round**.
 ## Repair round
 1. The findings verbatim as acceptance criteria of one ticket `F<n>` (next free number), the way phase 6 builds `F1`; `bv tickets` → start → executor → `bv contract` → `bv commit`.
 2. Any commit makes G5, G4, the audit and the code review stale, and `bv finish` says so. The repair is a patch of the findings only; the checks are all repeated, from the first: the re-check by `bv-reviewer` (`description: "Review of ticket F<n>"`, which `bv ticket F<n> done` also needs), `bv audit`, then section 1, with a fresh clone for the blind check.
-3. **At most 2 rounds.** Still red, or the cause is outside the code (an account, a key, a fact only the user has) → stop repairing and close honestly: section 5 with `--not-accepted`.
+3. **At most 2 rounds.** `bv tickets` refuses a third `F` ticket in this stage for the whole run. Still red, or the cause is outside the code (an account, a key, a fact only the user has) → stop repairing and close honestly: section 5 with `--not-accepted`.
 
 ## 3. Project memory — after the blind check (it needs verified commands)
 `software-architector:bv-memory`: the memory file and owner (from `bv status`/state), `interfaces.md`, the tier, the blind agent's verified commands.

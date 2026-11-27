@@ -386,7 +386,8 @@ export const register: Register = on => {
       const tools = [...byTool].sort((a, b) => b[1] - a[1]).map(([t, n]) => `${t} ${n}`).join(' · ')
       const files = [...new Set(list.filter(x => x.k === 'tool' && x.ok !== false && EDITS.has(x.tool ?? '')).map(x => x.s ?? ''))]
       const lastBad = [...list].reverse().find(x => x.k === 'tool' && x.ok === false && !agent.soft.has(x))
-      const last = [...agent.events].reverse().find(x => x.k === 'agent-stop')?.last
+      // the answer comes in a SubagentHandback call or a SubagentStop; an empty SubagentStop must not hide it
+      const last = [...agent.events].reverse().find(x => (x.k === 'agent-stop' || x.tool === 'SubagentHandback') && x.last)?.last
       const lines = last?.split('\n') ?? []
       const long = lines.length > SUMMARY_LINES
       return (
