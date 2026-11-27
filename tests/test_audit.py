@@ -297,20 +297,29 @@ class AuditCommandTest(Delivery):
         self.assertIn("audit.md", out)
         self.assertIn("low 1", out.splitlines()[0])
 
-    def test_a_dangerous_call_blocks_delivery_until_fixed_or_accepted_with_a_reason(self):
-        self.to_review(app="def add(a, b):\n    return eval('a + b')\n")
-        self.assertIn("eval", self.bv("audit"))
-        fid = self.finding("eval")["id"]
-        self.bv("stage", "final", "start")  # the audit ran in this round: its findings stop the delivery, not the stage
-        self.bv("verify")
-        self.agent_ran("bv-blind", last=json.dumps(BLIND_OK))
-        self.bv("gate", "G4")
-        self.assertIn(f"audit finding {fid}", self.fails("finish", "--result", "ok"))
+    def test_a_dangerous_call_blocks_the_ticket_until_fixed_or_accepted_with_a_reason(self):
+        self.plan()
+        self.bv("ticket", "01", "start")
+        self.write_code(app="def add(a, b):\n    return eval('a + b')\n")
+        self.returned()
+        msg = self.fails("commit", "01", "--tests", "1/0")  # the check is green: the code audit alone refuses
+        self.assertIn("code audit of ticket 01", msg)
+        self.assertIn("eval", msg)
+        self.assertNotIn("project check is red", msg)
+        fid = bv.find_ticket(self.state(), "01")["audit"]["findings"][0]["id"]  # kept although the commit was refused
         self.assertIn("no finding", self.fails("audit", "--accept", "s-00000000", "--note", "x"))
         self.assertIn("--note", self.fails("audit", "--accept", fid))
         self.assertIn("--note", self.fails("audit", "--accept", fid, "--note", "  "))
         self.bv("audit", "--accept", fid, "--note", "the expression is a constant, no user input reaches it")
+        self.bv("commit", "01", "--tests", "1/0")
+        self.bv("stage", "review", "start")
+        self.agent_ran("bv-reviewer")
+        self.assertIn("high 1 · medium 0 · low 0 · accepted 1", self.bv("audit"))
         self.assertEqual(self.state()["audit"]["accepted"], {fid: "the expression is a constant, no user input reaches it"})
+        self.bv("verify")
+        self.bv("stage", "final", "start")  # accepted at the ticket: the branch audit does not block it again
+        self.agent_ran("bv-blind", last=json.dumps(BLIND_OK))
+        self.bv("gate", "G4")
         self.bv("finish", "--result", "ok")
         st = self.state()
         self.assertIs(st["accepted"], True)
@@ -337,6 +346,7 @@ class AuditCommandTest(Delivery):
         self.edit_state(lambda st: st["audit"].update(at="2000-01-01T00:00:00+00:00"))
         self.assertIn("bv audit", self.fails("stage", "final", "start"))
         self.bv("audit")
+        self.bv("verify")
         self.bv("stage", "final", "start")
 
     def test_code_moved_after_the_audit_or_no_audit_at_all_stops_delivery(self):
@@ -363,8 +373,8 @@ class AuditCommandTest(Delivery):
         for part in ("Audit", "not checked: npm", fid, "negative numbers are out of scope"):
             self.assertIn(part, text)
         self.assertNotIn("pip-audit", text)
-        self.bv("stage", "final", "start")
         self.bv("verify")
+        self.bv("stage", "final", "start")
         self.agent_ran("bv-blind", last=json.dumps(BLIND_OK))
         self.bv("gate", "G4")
         self.bv("finish", "--result", "ok")

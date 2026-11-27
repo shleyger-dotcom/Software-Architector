@@ -25,6 +25,7 @@ Current state (from `bv status`):
 4. Irreversible or external actions (deploy, publish, payment, message to a third party, data deletion, history rewrite, `git push`) — ask the user in every mode, before acting.
 5. The orchestrator does not write project code. A hook blocks your Write/Edit and shell writes (`>`, `cp`/`mv`/`rm`, `sed -i`, `git add/commit`, PowerShell file cmdlets, inline `python`/`node` writing files, a writing command handed to `bv set`) outside `.software-architector/` and memory files; route the change to an executor. It also blocks agents other than `software-architector:bv-*` and MCP tools that change something. Commits go only through `bv commit`.
 6. "Done" is said only by `bv`, from facts. `bv` runs the check itself, builds a clean clone itself (`bv verify`), runs the junk-code and security audit itself (`bv audit`) and sees in the hooks' journal which checkers really ran. A refusal is information, not an obstacle: fix the cause, never work around it, and never tell the user something works unless `bv` accepted it. What could not be proven is said first, in plain words: `bv finish --not-accepted`.
+   No code stage closes on one gate: a ticket commit, the review stage and the delivery each need an **execution result** (the check, the clean clone) **and a code audit** (the mechanical scan, the reviewer), both on the current commit. A failed check is fixed by a patch of the defect only, and then `bv` demands every check of that stage again, from the first.
 
 Everything else (numbers, tiers, wave widths) is calibration: you may deviate consciously and say so in one line — except the cost rules (what goes to repair, which tickets get spot review, how many re-checks): widening those needs one line to the user with the price.
 
@@ -32,6 +33,7 @@ Everything else (numbers, tiers, wave widths) is calibration: you may deviate co
 - English, plain words, no jargon, no file names or ticket numbers unless asked. One line per event ("The bot takes requests — 3 of 8 done").
 - Words: "build" = the whole run, "ticket" = a unit of work, "task" = what the user asked for. Do not mix them.
 - Never paste tables, diffs or logs into the chat; they live in files and on the dashboard.
+- Every stage that closes prints a `Receipt — stage …` (files, execution, audit) and adds it to `receipts.md` in the run folder. Read it, do not paste it; the only receipt the user gets verbatim is the final one (phase 7).
 
 ## Modes (who is asked, how often)
 Parse `$ARGUMENTS`: mode words and depth words in any order, the rest is the brief (text, or a path to a `.md` file — read it).

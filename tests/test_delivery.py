@@ -58,10 +58,14 @@ class Delivery(Base):
         self.returned()
         self.bv("commit", "01", "--tests", "1/0")
 
-    def review(self):
+    def review_round(self):
         self.bv("stage", "review", "start")
         self.agent_ran("bv-reviewer")
         self.bv("audit")
+
+    def review(self):
+        self.review_round()
+        self.bv("verify")  # the review stage closes on both gates: execution and audit on the current commit
         self.bv("stage", "final", "start")
 
     def accepted_path(self):
@@ -105,7 +109,10 @@ class HonestRunTest(Delivery):
         self.touch("src/app.py", APP + "\n# edited\n")
         self.returned("F1", reqs="R01 done")
         self.bv("commit", "F1", "--tests", "1/0")
-        self.assertIn("after `bv verify`", self.fails("finish", "--result", "done"))
+        msg = self.fails("finish", "--result", "done")
+        self.assertIn("after `bv verify`", msg)
+        self.assertIn("code changed after the last code review", msg)  # a patch re-runs every check, review included
+        self.agent_ran("bv-reviewer", "Review of ticket F1")
         self.bv("audit")  # a repair round moves HEAD: the audit is repeated
         self.bv("verify")
         self.agent_ran("bv-blind", last=json.dumps(BLIND_OK))
@@ -171,8 +178,9 @@ class CheckIsRunNotClaimedTest(Delivery):
         self.assertIn("0 tests", self.fails("commit", "01", "--tests", "5/0"))
         self.bv("set", f"checkCmd={PASS}", f"e2eCmd={PY} -c \"print('0 passing')\"", "--reason", "test")
         self.bv("commit", "01", "--tests", "5/0")
-        self.review()
+        self.review_round()
         self.assertIn("0 tests", self.fails("verify"))
+        self.assertIn("bv verify", self.fails("stage", "final", "start"))  # a red execution result keeps the stage open
 
     def test_an_unrecognized_runner_is_red_until_its_count_is_named(self):
         self.plan(check=f'{PY} -c "print(\'checked 4 files, all good\')"')
@@ -248,7 +256,7 @@ class CleanCloneTest(Delivery):
         self.touch("helper_outside_zone.py", "ONE = 1\n")
         self.returned()
         self.bv("commit", "01", "--tests", "1/0")
-        self.review()
+        self.review_round()
         msg = self.fails("verify")
         self.assertIn("G5 ✗", msg)
         self.assertIn("helper_outside_zone", msg)
@@ -263,7 +271,7 @@ class CleanCloneTest(Delivery):
         self.touch("e2e.py", "raise SystemExit('scenario broken')\n")
         self.returned()
         self.bv("commit", "01", "--tests", "1/0")
-        self.review()
+        self.review_round()
         self.assertIn("scenario broken", self.fails("verify"))
 
     def test_the_clone_gets_env_example_and_the_real_env_only_on_request(self):
@@ -334,9 +342,10 @@ class AcceptanceCannotBeFakedTest(Delivery):
         """M6: a `git clone` minus the folder still carried spec and manifest in its history (`git log -p`)."""
         self.plan()
         self.build()
-        self.review()
+        self.review_round()
         self.assertIn("G5", self.fails("blind-clone"))
         self.bv("verify")
+        self.bv("stage", "final", "start")
         self.bv("blind-clone")
         first = Path(self.state()["blindClone"])
         self.assertTrue((first / "src" / "app.py").exists())
@@ -477,6 +486,7 @@ class AcceptanceCannotBeFakedTest(Delivery):
         self.assertIn("Full mode", report)
         rows = {r["id"]: r["status"] for r in bv.read_manifest(self.rdir() / "manifest.md")}
         self.assertEqual((rows["R01"], rows["S01"]), ("done", "placeholder"))
+        self.agent_ran("bv-reviewer", "Review of ticket F1")
         self.bv("audit")
         self.bv("verify")
         self.agent_ran("bv-blind", last=json.dumps(partial))
@@ -632,6 +642,92 @@ class ReceiptTest(Delivery):
         self.assertIn("Tickets: —", text)
 
 
+class BothGatesTest(Delivery):
+    """No code stage closes without an execution result and a code audit, and a patch re-runs every check of its stage."""
+
+    def test_a_red_check_and_an_audit_finding_are_reported_together(self):
+        self.plan()
+        self.bv("ticket", "01", "start")
+        self.write_code(app="def add(a, b):\n    return eval('a - b')\n")
+        self.returned()
+        msg = self.fails("commit", "01", "--tests", "1/0")
+        self.assertIn("project check is red", msg)
+        self.assertIn("code audit of ticket 01", msg)
+        self.assertFalse(bv.find_ticket(self.state(), "01")["commit"])
+
+    def test_the_ticket_audit_reads_only_what_the_ticket_changed(self):
+        self.plan()
+        self.bv("ticket", "01", "start")
+        self.write_code()
+        self.touch("tools/old.py", "eval('1')\n")  # outside the zone: the branch audit's business, not this ticket's
+        self.returned()
+        self.bv("commit", "01", "--tests", "1/0")
+        au = bv.find_ticket(self.state(), "01")["audit"]
+        self.assertEqual(au["findings"], [])
+        self.assertEqual(au["files"], 5)
+
+    def test_a_fix_in_review_reruns_every_check_of_the_stage(self):
+        self.plan()
+        self.build()
+        self.bv("stage", "review", "start")
+        self.agent_ran("bv-reviewer")
+        self.bv("audit")
+        self.bv("verify")
+        (self.rdir() / "tickets" / "F1-fix.md").write_text(
+            "# F1 — Fix\n**Requirements:** R01\n**Blocked by:** —\n**Zone:** `src/`\n**Wave:** 2\n**Review:** no\n", "utf-8")
+        self.bv("tickets")
+        self.bv("ticket", "F1", "start")
+        self.touch("src/app.py", APP + "\n# reviewed\n")
+        self.returned("F1", reqs="R01 done")
+        self.bv("commit", "F1", "--tests", "1/0")
+        self.assertIn("after the last code review", self.fails("stage", "final", "start"))
+        self.agent_ran("bv-reviewer", "Review of ticket F1")
+        self.assertIn("repeat `bv audit`", self.fails("stage", "final", "start"))
+        self.bv("audit")
+        self.assertIn("bv verify", self.fails("stage", "final", "start"))
+        self.bv("verify")
+        self.bv("stage", "final", "start")
+
+    def test_an_open_blocking_finding_stops_the_review_stage(self):
+        self.plan()
+        self.build()
+        self.bv("stage", "review", "start")
+        self.agent_ran("bv-reviewer")
+        self.touch("tools/old.py", "eval('1')\n")
+        subprocess.run(["git", "add", "tools/old.py"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "an old tool"], cwd=self.root, check=True)
+        self.bv("audit")
+        self.bv("verify")
+        self.assertIn("blocking findings are open", self.fails("stage", "final", "start"))
+
+
+class StageReceiptTest(Delivery):
+    def test_every_closed_stage_leaves_a_receipt(self):
+        self.accepted_path()
+        out = self.bv("finish", "--result", "numbers add up")
+        self.assertIn("Receipt — stage Acceptance", out)
+        receipts = self.state()["receipts"]
+        by_stage = {r.split("(")[0].removeprefix("Receipt — stage ").strip(): r for r in receipts}
+        # this scripted run jumps over Plan (`skipped`): a stage that never ran leaves no receipt
+        self.assertEqual(list(by_stage), ["Preflight", "Specification", "Build", "Code review", "Acceptance"])
+        self.assertIn("not applicable", by_stage["Specification"])
+        build = by_stage["Build"]
+        for part in ("A\tsrc/app.py", "T01 done", "audit blocker 0, high 0"):
+            self.assertIn(part, build)
+        self.assertNotIn("A\tsrc/app.py", by_stage["Code review"])  # nothing new was committed in the review
+        self.assertIn("Branch Audit", by_stage["Code review"])
+        self.assertIn("G5 ✓", by_stage["Code review"])
+        self.assertIn("G4 ✓", by_stage["Acceptance"])
+        md = (self.root / ".software-architector" / self.state()["dir"] / "receipts.md").read_text("utf-8")
+        self.assertEqual(md.count("```text"), len(receipts))
+
+    def test_a_stage_from_an_older_state_says_its_files_are_unknown(self):
+        self.init()
+        text = bv.stage_receipt(self.root, self.state(), {"label": "Build", "status": "done", "startedAt": None})
+        self.assertIn("unknown", text)
+        self.assertIn("not applicable", text)
+
+
 class ProcessCannotBeSkippedTest(Delivery):
     def test_repair_cannot_be_closed_without_a_new_commit(self):
         self.plan()
@@ -660,6 +756,8 @@ class ProcessCannotBeSkippedTest(Delivery):
         self.agent_ran("bv-reviewer")
         self.assertIn("bv audit", self.fails("stage", "final", "start"))
         self.bv("audit")
+        self.assertIn("bv verify", self.fails("stage", "final", "start"))
+        self.bv("verify")
         self.bv("stage", "final", "start")
 
     def test_g1_needs_a_scenario(self):

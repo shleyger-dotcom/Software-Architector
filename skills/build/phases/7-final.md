@@ -3,7 +3,7 @@
 "Delivered" is decided by `bv finish` from facts, and only there. Red at any step below is not a line for the report: it is work.
 
 ## 1. Clean clone (G5) — before anything expensive
-`bv verify` with the Bash tool's `timeout: 600000` (longer projects: `run_in_background: true`). It clones HEAD into a temp folder, drops `.software-architector`, runs `setupCmd`, `checkCmd` and `e2eCmd` there and reads the exit codes. No model is involved. It sees only what was committed: a file outside every zone, a dependency installed by hand or a setting that lives only in this folder breaks here, not at the user's. The clone's `.env` is the committed `.env.example` plus `CI=1`, as a stranger would have it. Only if the project cannot start without real values and the user agrees: `bv verify --use-real-env` (and `bv blind-clone --use-real-env`) copies the real `.env` unread; `bv` writes that into the report.
+Phase 6 left G5 green on HEAD; run it again only when the code moved since (`bv gate G4` and `bv finish` say so). `bv verify` with the Bash tool's `timeout: 600000` (longer projects: `run_in_background: true`). It clones HEAD into a temp folder, drops `.software-architector`, runs `setupCmd`, `checkCmd` and `e2eCmd` there and reads the exit codes. No model is involved. It sees only what was committed: a file outside every zone, a dependency installed by hand or a setting that lives only in this folder breaks here, not at the user's. The clone's `.env` is the committed `.env.example` plus `CI=1`, as a stranger would have it. Only if the project cannot start without real values and the user agrees: `bv verify --use-real-env` (and `bv blind-clone --use-real-env`) copies the real `.env` unread; `bv` writes that into the report.
 
 Red → **Repair round** (below).
 
@@ -30,7 +30,7 @@ A project that cannot be started at all → **Repair round**.
 
 ## Repair round
 1. The findings verbatim as acceptance criteria of one ticket `F<n>` (next free number), the way phase 6 builds `F1`; `bv tickets` → start → executor → `bv contract` → `bv commit`.
-2. Any commit makes G5, G4 and the audit stale, and `bv finish` says so: run `bv audit` again, then repeat from section 1, with a fresh clone for the blind check.
+2. Any commit makes G5, G4, the audit and the code review stale, and `bv finish` says so. The repair is a patch of the findings only; the checks are all repeated, from the first: the re-check by `bv-reviewer` (`description: "Review of ticket F<n>"`, which `bv ticket F<n> done` also needs), `bv audit`, then section 1, with a fresh clone for the blind check.
 3. **At most 2 rounds.** Still red, or the cause is outside the code (an account, a key, a fact only the user has) → stop repairing and close honestly: section 5 with `--not-accepted`.
 
 ## 3. Project memory — after the blind check (it needs verified commands)
@@ -66,6 +66,6 @@ Sections, in this order (an empty section is omitted, except the two marked *):
 10. **Open questions** ← unresolved coverage items
 11. **Project memory** ← the proposal, if the file is the user's
 12. **How to run** — the verified commands · **Where things are** — 3–5 pointers
-13. **Receipt** * ← the `Receipt` block that `bv finish` printed, verbatim in a code block: changed files, tickets, gates, audit. Never retype or shorten it
+13. **Receipt** * ← the `Receipt` block that `bv finish` printed, verbatim in a code block: changed files, tickets with their check and audit, gates, audit. Never retype or shorten it. One line after it: the receipt of every stage is in `receipts.md` of the run folder
 
 Secrets only by name; no diffs, file lists or test names outside the Receipt. The Receipt is the one exception to "never paste logs" in SKILL.md.

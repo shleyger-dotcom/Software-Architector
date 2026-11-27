@@ -57,6 +57,8 @@ SETTABLE = ("title", "mode", "depth", "tier", "setupCmd", "checkCmd", "e2eCmd", 
 # what decides «green»: once the build starts, a change is a recorded decision, never a quiet `checkCmd=exit 0`
 FROZEN = ("setupCmd", "checkCmd", "e2eCmd", "testsPattern")
 GATES = ("G1", "G2", "G3", "G4", "G5")
+# git's empty tree: the base of a stage begun before any commit. shortcut: SHA-1 repos only, a SHA-256 repo lists "—"
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 SKIPPABLE_STAGES = ("manifest", "briefing")  # every later stage is what makes the result trustworthy
 CHECK_TIMEOUT = 540  # seconds per command: a foreground Bash tool call is cut at 600
 TEST_COUNTS = [re.compile(p, re.M) for p in (
@@ -775,6 +777,46 @@ def project_check(root, st, a):
     return r
 
 
+def accepted_findings(st):
+    """Audit findings lifted as false positives, from a ticket's audit or the branch one: ids are stable across runs."""
+    return {**(st.get("auditAccepted") or {}), **((st.get("audit") or {}).get("accepted") or {})}
+
+
+def ticket_audit(root, st, t):
+    """The code audit behind a ticket's commit, like the check: the mechanical scan of the files this ticket changed.
+    Returns (record, blocking findings)."""
+    z = t["zone"]
+    changed = sorted({f for f in git(root, "diff", "--name-only", "-z", "HEAD", "--", *z, check=False).split("\0")
+                      + git(root, "ls-files", "-z", "--others", "--exclude-standard", "--", *z, check=False).split("\0")
+                      if f and guard.in_zone(f, z)})
+    files = [f for f in git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", check=False).split("\0") if f]
+    commands = [st[k] for k in ("setupCmd", "checkCmd", "e2eCmd") if st.get(k)]
+    # only what this ticket wrote counts: old code in the zone and other zones are the branch audit's business
+    found = [f for f in audit.scan(root, files, changed, commands) if f["file"] in changed]
+    accepted = accepted_findings(st)
+    rec = {"at": now(), "files": len(changed),
+           "findings": [{k: f[k] for k in ("id", "sev", "kind", "rule", "file", "line")} for f in found]}
+    return rec, [f for f in found if f["sev"] in audit.BLOCKING and f["id"] not in accepted]
+
+
+def audit_counts(au):
+    return ", ".join(f"{s} {sum(f['sev'] == s for f in au['findings'])}" for s in audit.SEVERITIES)
+
+
+def audit_refusal(tid, blocking):
+    return (f"code audit of ticket {tid} found {len(blocking)} blocking finding(s) in the files it changed: commit not made. "
+            f"Fix through `bv ticket {tid} repair`; a false positive only after a reviewer confirmed it: "
+            f"`bv audit --accept <id> --note \"<why>\"`, it goes into the report\n"
+            + "\n".join(f"! {f['id']} {f['sev']} {f['rule']} {f['file']}" + (f":{f['line']}" if f["line"] else "")
+                        + f" — {f['msg']}" for f in blocking))
+
+
+def last_commit_at(st):
+    """When the last ticket commit landed: every check of the current stage must come after it."""
+    times = [t["committedAt"] for t in st["tickets"] if t.get("committedAt")]
+    return max(times, key=dt.datetime.fromisoformat) if times else None
+
+
 def agent_stop(root, st, kind, since, ticket=None):
     """The hooks' journal, not the orchestrator's word: the latest stop of an agent of this kind after `since`; with
     `ticket`, only an agent whose Agent call named that ticket («Review of ticket 02»). None when there is none."""
@@ -920,7 +962,7 @@ def cmd_audit(root):
     with locked(root):
         fresh = load(root)
         au = {"head": head, "base": base, "at": now(), "tools": tools,
-              "accepted": (fresh.get("audit") or {}).get("accepted") or {},  # ids are stable: a decision outlives a re-run
+              "accepted": accepted_findings(fresh),  # ids are stable: a decision outlives a re-run
               "findings": [{k: f[k] for k in ("id", "sev", "kind", "rule", "file", "line")} for f in findings]}
         fresh["audit"] = au
         path = run_dir(root, fresh) / "audit.md"
@@ -938,13 +980,17 @@ def cmd_audit(root):
 def cmd_audit_accept(st, a):
     """A false positive: the block is lifted, and the reason goes into the report verbatim (like --fewer-tests)."""
     au = st.get("audit") or {}
-    f = next((x for x in au.get("findings", []) if x["id"] == a.accept), None)
+    found = au.get("findings", []) + [x for t in st["tickets"] for x in (t.get("audit") or {}).get("findings", [])]
+    f = next((x for x in found if x["id"] == a.accept), None)
     if not f:
-        raise Fail(f"no finding {a.accept} in the last audit: the ids are in audit.md (run `bv audit` first)")
+        raise Fail(f"no finding {a.accept} in the last audit: the ids are in audit.md or in the refusal of `bv commit` "
+                   f"(run `bv audit` first)")
     note = (a.note or "").strip()
     if not note:
         raise Fail(f"--accept {f['id']} needs --note \"<why it is not a defect>\": it goes into the report verbatim")
-    au.setdefault("accepted", {})[f["id"]] = note
+    st.setdefault("auditAccepted", {})[f["id"]] = note
+    if au:
+        au.setdefault("accepted", {})[f["id"]] = note
     st["lists"]["report"].append(f"Audit finding {f['id']} ({f['sev']} {f['rule']}, {f['file']}:{f['line']}) accepted: {note}")
     log(st, "audit-accept", id=f["id"], note=note)
     print(f"Audit finding {f['id']}: accepted")
@@ -982,6 +1028,9 @@ def delivery_problems(root, st):
                 for f in audit.open_blocking(au)]
     if not next(s for s in st["stages"] if s["id"] == "final").get("startedAt"):
         bad.append("the acceptance stage never started: branch code review not confirmed")
+    last = last_commit_at(st)
+    if last and not agent_finished_since(root, st, "bv-reviewer", last):
+        bad.append("code changed after the last code review: run bv-reviewer (repair mode) on the new commit")
     bad += vanished(st, rows)
     for r in live(rows):
         holders = [t for t in tickets if covers(t, r["id"])]
@@ -1228,6 +1277,7 @@ def cmd_init(root, a):
         n += 1
     (root / ".software-architector" / rdir / "tickets").mkdir(parents=True)
     st = new_state(a.slug, a.title, a.mode, a.depth, rdir, a.memory_file, a.memory_owner)
+    st["stages"][0]["head"] = head_or_empty(root)
     log(st, "init", mode=a.mode, depth=a.depth)
     save(root, st)
     print(f"Run started: .software-architector/{rdir} · mode {a.mode}/{a.depth}")
@@ -1242,21 +1292,26 @@ def cmd_stage(root, st, a):
     if a.action == "skip" and a.id not in SKIPPABLE_STAGES:
         raise Fail(f"stage {a.id} cannot be skipped: only these can be skipped: {', '.join(SKIPPABLE_STAGES)}")
     stage = next(s for s in st["stages"] if s["id"] == a.id)
+    closed = []
     if a.action == "start":
         check_stage_gate(root, st, a.id)
         idx = STAGE_IDS.index(a.id)
         for i, s in enumerate(st["stages"]):
             if s["status"] == "active" and s["id"] != a.id:
                 s["status"], s["finishedAt"] = "done", now()
+                closed.append(s)
             elif s["status"] == "pending" and i < idx:  # jumped over: show it honestly, not as waiting
                 s.update(status="skipped", finishedAt=now(), note=s["note"] or "not marked")
         if stage["status"] != "active":  # re-entered (changes after the review): proof must come from this round
-            stage.update(startedAt=now(), finishedAt=None)
+            stage.update(startedAt=now(), finishedAt=None, head=head_or_empty(root))
         stage.update(status="active", note=a.note or stage["note"])
     else:
         stage.update(status={"done": "done", "skip": "skipped", "fail": "failed"}[a.action],
                      finishedAt=now(), note=a.note or stage["note"])
+        closed.append(stage)
     log(st, "stage", id=a.id, action=a.action, note=a.note)
+    for s in closed:
+        print(close_stage(root, st, s))
     print(f"Stage {stage['label']}: {stage['status']}")
 
 
@@ -1284,14 +1339,27 @@ def check_stage_gate(root, st, sid):
         if left:
             raise Fail(f"tickets not closed: {', '.join(left)}")
     if sid == "final":
+        # the review stage closes on both gates, each on the current commit: a fix in it re-runs every check
         rv = next(s for s in st["stages"] if s["id"] == "review")
         if not rv.get("startedAt"):
             raise Fail("branch code review first: `bv stage review start`")
         if not agent_finished_since(root, st, "bv-reviewer", rv["startedAt"]):
             raise Fail("branch code review is not confirmed by the journal: run bv-reviewer in branch mode and wait for it")
-        au = st.get("audit") or {}
+        last = last_commit_at(st)
+        if last and not agent_finished_since(root, st, "bv-reviewer", last):
+            raise Fail("code changed after the last code review: run bv-reviewer (repair mode) on the new commit")
+        au, head = st.get("audit") or {}, git(root, "rev-parse", "HEAD")
         if not au.get("at") or dt.datetime.fromisoformat(au["at"]) < dt.datetime.fromisoformat(rv["startedAt"]):
             raise Fail("no audit in this review round: run `bv audit`, give audit.md to bv-reviewer, fix or accept its findings")
+        if au.get("head") != head:
+            raise Fail("code changed after the audit: repeat `bv audit` on the current commit")
+        blocking = audit.open_blocking(au)
+        if blocking:
+            raise Fail("code audit: blocking findings are open: " + ", ".join(f["id"] for f in blocking)
+                       + " — fix them in F1, or accept a false positive the reviewer dropped: `bv audit --accept <id> --note …`")
+        g5 = st["gates"].get("G5") or {}
+        if not g5.get("ok") or g5.get("head") != head:
+            raise Fail("no execution result on the current commit: run `bv verify` (clean clone: setup, check, e2e)")
 
 
 def cmd_set(st, pairs, reason=None):
@@ -1482,7 +1550,7 @@ def cmd_commit(root, st, a):
         h = commit_paths(root, t["zone"] + [".env.example"] + (a.also or []), subject,
                          [f"Software-Architector-Run: {run_name(st)}", f"Requirements: {reqs}",
                           f"Software-Architector-Commit: {key}"])
-    t.update(commit=h, tests=tests, proof=a.proof, committedAt=now())
+    t.update(commit=h, tests=tests, proof=a.proof, audit=a.audit, committedAt=now())
     t["placeholders"] = sorted(set(t.get("placeholders", [])) | set(a.placeholder or []))
     st["tests"] = tests  # the project-wide count of the latest check (it runs the whole project), not a sum of tickets
     if a.fewer_tests:
@@ -1720,36 +1788,91 @@ def verdict_line(st):
     return "Build delivered" + (f", except: {', '.join(st['unproven'])}" if st.get("unproven") else "")
 
 
+def head_or_empty(root):
+    return git(root, "rev-parse", "--verify", "-q", "HEAD", check=False)  # "" in a repo without commits yet
+
+
+def changed_files(root, base, head):
+    files = git(root, "diff", "--name-status", f"{base}..{head}", "--", ".", ":(exclude).software-architector",
+                check=False).splitlines()
+    return [f"  {f}" for f in files] if files else ["  —"]
+
+
+def ticket_line(t):
+    tests, au = t.get("tests") or {}, t.get("audit")
+    return (f"  T{t['id']} {t['status']} · commit {(t.get('commit') or '—')[:7]} · tests "
+            + (f"{tests['passed']}/{tests['failed']}" if tests else "—")
+            + f" · repairs {t.get('repairs', 0)} · retries {t.get('retries', 0)}"
+            + f" · audit {audit_counts(au) if au else '—'}")
+
+
+def gate_line(g, v):
+    line = f"  {g} {'✓' if v and v.get('ok') else ('✗' if v else '—')}"
+    if v and v.get("head"):
+        line += f" on {v['head'][:7]}"
+    if v and g == "G4":
+        line += f" · checked {v.get('checked', 0)} · mismatches {len(v.get('mismatches') or [])}"
+    if v and g == "G5":
+        line += "".join(f" · {s['step']} exit {s['exit']} · tests {s.get('tests')}" for s in v.get("steps") or [])
+    return line
+
+
 def receipt(root, st, landing):
     """What `bv finish` hands over: files changed since the plan, each ticket's proof and every gate, from git and state."""
     base = st.get("baseCommit")
     out = ["Receipt"]
     if base:
-        files = git(root, "diff", "--name-status", f"{base}..{landing}", "--", ".", ":(exclude).software-architector",
-                    check=False).splitlines()
         out.append(f"Files changed since the plan ({base[:7]}..{landing[:7]}):")
-        out += [f"  {f}" for f in files] if files else ["  —"]
+        out += changed_files(root, base, landing)
     else:
         out.append("Files changed: unknown, no baseCommit (`bv commit plan` never ran)")
     out.append("Tickets:" if st["tickets"] else "Tickets: —")
-    for t in st["tickets"]:
-        tests = t.get("tests") or {}
-        out.append(f"  T{t['id']} {t['status']} · commit {(t.get('commit') or '—')[:7]} · tests "
-                   + (f"{tests['passed']}/{tests['failed']}" if tests else "—")
-                   + f" · repairs {t.get('repairs', 0)} · retries {t.get('retries', 0)}")
+    out += [ticket_line(t) for t in st["tickets"]]
     out.append("Gates:")
-    for g in GATES:
-        v = st["gates"].get(g)
-        line = f"  {g} {'✓' if v and v.get('ok') else ('✗' if v else '—')}"
-        if v and v.get("head"):
-            line += f" on {v['head'][:7]}"
-        if v and g == "G4":
-            line += f" · checked {v.get('checked', 0)} · mismatches {len(v.get('mismatches') or [])}"
-        if v and g == "G5":
-            line += "".join(f" · {s['step']} exit {s['exit']} · tests {s.get('tests')}" for s in v.get("steps") or [])
-        out.append(line)
+    out += [gate_line(g, st["gates"].get(g)) for g in GATES]
     out.append(f"  {audit.summary(st['audit'])}" if st.get("audit") else "  no audit")
     return "\n".join(out)
+
+
+def after(ts, since):
+    return bool(ts) and (not since or dt.datetime.fromisoformat(ts) >= dt.datetime.fromisoformat(since))
+
+
+def stage_receipt(root, st, stage):
+    """The receipt of one stage: files committed in it, and what was run and audited in it."""
+    since, base, head = stage.get("startedAt"), stage.get("head"), head_or_empty(root)
+    out = [f"Receipt — stage {stage['label']} ({stage['status']}, {since or '?'} → {stage.get('finishedAt') or '?'})"]
+    if base is None:
+        out.append("Files changed: unknown, the stage started before receipts existed")
+    elif not head:
+        out.append("Files changed: —")
+    else:
+        out.append(f"Files changed in this stage ({(base or 'empty')[:7]}..{head[:7]}):")
+        out += changed_files(root, base or EMPTY_TREE, head)
+    tickets = [t for t in st["tickets"] if after(t.get("committedAt"), since)
+               or (t["status"] == "failed" and after(t.get("finishedAt"), since))]
+    gates = [g for g in GATES if after((st["gates"].get(g) or {}).get("at"), since)]
+    au = st.get("audit") if after((st.get("audit") or {}).get("at"), since) else None
+    if not (tickets or au or {"G4", "G5"} & set(gates)):  # G1–G3 are the gates of documents, not of code
+        out.append("Execution and code audit: not applicable, this stage built and checked no code")
+    if tickets:
+        out.append("Tickets (each commit ran the full check and the code audit):")
+        out += [ticket_line(t) for t in tickets]
+    if gates:
+        out.append("Gates:")
+        out += [gate_line(g, st["gates"][g]) for g in gates]
+    if au:
+        out.append(f"Branch {audit.summary(au)}")
+    return "\n".join(out)
+
+
+def close_stage(root, st, stage):
+    """A closed stage leaves its receipt in the state and in receipts.md of the run folder."""
+    text = stage_receipt(root, st, stage)
+    st.setdefault("receipts", []).append(text)
+    path = run_dir(root, st) / "receipts.md"
+    path.write_text("# Stage receipts\n\n" + "\n\n".join(f"```text\n{r}\n```" for r in st["receipts"]) + "\n", "utf-8")
+    return text
 
 
 def cmd_finish(root, st, a):
@@ -1769,9 +1892,12 @@ def cmd_finish(root, st, a):
         st["lists"]["report"].append("During the run the guard was switched off (guard=off): the journal and the bans did not work in that time.")
     if st.get("audit"):  # the accepted findings are in the report already, from `bv audit --accept`
         st["lists"]["report"].append(audit.summary(st["audit"]))
+    last_stage = []
     for s in st["stages"]:
         if s["status"] in ("active", "pending"):
             s.update(status="done" if s["status"] == "active" else "skipped", finishedAt=now())
+            if s["status"] == "done":
+                last_stage.append(close_stage(root, st, s))
     old = run_dir(root, st)
     st["dir"] = st["dir"].removesuffix("--wip")
     os.replace(old, run_dir(root, st))
@@ -1790,6 +1916,8 @@ def cmd_finish(root, st, a):
         print(f"{verdict_line(st)}: {h}")
     else:
         print(f"Build closed WITHOUT acceptance: {h}\n" + "\n".join(f"! {p}" for p in problems))
+    for text in last_stage:
+        print(text)
     print(receipt(root, st, h))
     rest = git(root, "status", "--porcelain", check=False)
     if rest:
@@ -1962,7 +2090,24 @@ def main(argv=None):
         limit = int(st.get("checkTimeout") or CHECK_TIMEOUT)
         with locked(root, wait=30, stale=limit + 120, name="check",  # 540 s check + 30 s wait fit a 600 s Bash call
                     busy="another ticket's check is running: repeat `bv commit` in a minute"):
-            a.proof = project_check(root, load(root), a)
+            # both gates run every time, and both are reported at once: one repair fixes everything they found
+            red = None
+            try:
+                a.proof = project_check(root, load(root), a)
+            except Fail as e:
+                red = e
+            fresh = load(root)
+            a.audit, blocking = ticket_audit(root, fresh, find_ticket(fresh, a.target))
+            if red or blocking:
+                if blocking:  # the ids must outlive the refusal, so `bv audit --accept <id>` can find them
+                    with locked(root):
+                        fresh = load(root)
+                        find_ticket(fresh, a.target)["audit"] = a.audit
+                        save(root, fresh)
+                parts = [str(red)] if red else []
+                if blocking:
+                    parts.append(audit_refusal(norm_tid(a.target), blocking))
+                raise Fail("\n\n".join(parts))
     with locked(root):
         return _state_cmd(root, a)
 
