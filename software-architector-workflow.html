@@ -629,7 +629,7 @@
             <div><div class="b-step">3–4. Repair ticket F1 + mandatory re-audit:</div><ul class="b-list"><li style="color:#fb7185;">• FIX NOW (security, dead code, blocker/high) → F1 + review + bv audit</li></ul></div>
             <div class="bp-box" style="background:#090d16;border:1.5px solid #f59e0b;color:#cbd5e1;">
               <strong style="color:#fbbf24;display:block;">5. GATE G5 · Clean clone (bv verify on HEAD)</strong>
-              Temp clone without .software-architector → setupCmd + checkCmd + e2eCmd (red → F&lt;n&gt;, max 2 F tickets in stage)
+              Temp clone without .software-architector → setupCmd + checkCmd + e2eCmd (red → F&lt;n&gt;, max 2 F tickets in stage; +1 only on the user's request)
             </div>
           </div>
         </div>
@@ -650,7 +650,7 @@
               <div class="b-pill bp-purple">🧠 bv-memory (Haiku)</div>
             </div>
             <ul class="b-list">
-              <li style="color:#fb7185;font-weight:700;">• Drift → F&lt;n&gt; (max 2) re-runs reviewer + audit + G5 + G4!</li>
+              <li style="color:#fb7185;font-weight:700;">• Drift → F&lt;n&gt; (max 2, +1 user-approved) re-runs reviewer + audit + G5 + G4!</li>
               <li style="color:#10b981;font-family:Consolas,monospace;font-weight:700;">• bv finish → landing commit + verbatim Receipt</li>
             </ul>
           </div>
@@ -677,7 +677,7 @@
       <div class="info-card">
         <div>
           <h3><span>🧐 bv-reviewer</span> <span class="badge badge-agent">Opus (Read-Only)</span></h3>
-          <p>Judges code along Manifest (spot only), Spec and Craft axes plus a mandatory security checklist. Runs in <code>spot</code>, <code>repair</code> and <code>branch</code> modes; confirms or refutes every <code>blocker</code>/<code>high</code> item in <code>audit.md</code>.</p>
+          <p>Judges code along Manifest (spot only), Spec and Craft axes plus a mandatory security checklist. Runs in <code>spot</code>, <code>repair</code> and <code>branch</code> modes; confirms or refutes every <code>blocker</code>/<code>high</code> item in <code>audit.md</code>. Its <code>DROP: … [&lt;id&gt;]</code> line (branch and spot modes) is the only thing <code>bv audit --accept</code> accepts.</p>
         </div>
         <div class="meta">Tools: Read, Grep, Glob, Bash (guard enforces read-only &amp; inline -e/-c probes)</div>
       </div>
@@ -779,9 +779,9 @@
       <div class="info-card">
         <div>
           <h3><span>1. PreToolUse</span> <span class="badge badge-cli">pre-tool</span></h3>
-          <p>Main barrier across Write, Edit, MultiEdit, NotebookEdit, Read, Grep, Glob, Bash, PowerShell, WebSearch, WebFetch, AskUserQuestion, Agent, Task and <code>mcp__*</code>. Runs inside a 10s budget: crashes, timeouts or broken <code>state.json</code> fail-closed for writes. Logs <code>deny</code> and <code>AskUserQuestion</code> waits.</p>
+          <p>Main barrier across Write, Edit, MultiEdit, NotebookEdit, Read, Grep, Glob, Bash, PowerShell, WebSearch, WebFetch, AskUserQuestion, Agent, Task and <code>mcp__*</code>. Runs inside a 10s budget: crashes, timeouts or broken <code>state.json</code> fail-closed for writes. Logs <code>deny</code> and <code>AskUserQuestion</code> waits. A <code>bv</code> escape hatch gets <code>permissionDecision: "ask"</code>: the user approves the call; in <code>full</code> mode <code>--use-real-env</code> and <code>--extra-round</code> are denied, <code>--reason</code> and <code>--fewer-tests</code> pass into the report.</p>
         </div>
-        <div class="meta">Exit 2 blocks tool · Active while run is open &amp; guard=on</div>
+        <div class="meta">Exit 2 blocks tool · ask = user approves · Active while run is open &amp; guard=on</div>
       </div>
       <div class="info-card">
         <div>
@@ -839,7 +839,7 @@
       <div class="info-card">
         <div>
           <h3><span>Role, Zone &amp; Self-Protection</span> <span class="badge badge-gate">guard.py</span></h3>
-          <p>Orchestrator cannot write project code (Write/Edit or shell redirects/cmdlets/interpreters). <code>bv-executor</code> writes only inside its ticket's <code>Zone</code>. Nobody writes <code>state.json</code>, <code>live/</code>, the plugin folder or <code>.claude/settings*.json</code>. Non-<code>bv-*</code> agents and mutating MCP tools are blocked.</p>
+          <p>Orchestrator cannot write project code (Write/Edit or shell redirects/cmdlets/interpreters). <code>bv-executor</code> writes only inside its ticket's <code>Zone</code>. Nobody writes <code>state.json</code>, <code>live/</code>, the plugin folder or <code>.claude/settings*.json</code>. Non-<code>bv-*</code> agents and mutating MCP tools are blocked. Escape hatches need the user, not the model: Claude Code asks them to allow <code>guard=off</code>, <code>init --force</code>, <code>--use-real-env</code>, <code>--extra-round</code> (semi/interview also <code>set … --reason</code>, <code>--fewer-tests</code>); a subagent never runs them.</p>
         </div>
         <div class="meta">Emergency switch: bv set guard=off (the user approves the call; sets permanent guardWasOff report flag)</div>
       </div>
@@ -940,7 +940,7 @@
           "Estimate volume and set Tier (<code>bv set tier=…</code>): <code>T0</code> (≤ 3K, 1 ticket, no waves/spot review), <code>T1</code> (3–6K, 2 tickets), <code>T2</code> (6–18K, 3–6 tickets), <code>T3</code> (18–36K, 7–12 tickets; &gt; 36K forbidden → split into two runs).",
           "Write <code>tickets/NN-&lt;slug&gt;.md</code>: Ticket <code>01</code> builds the foundation/schemas and installs all spec dependencies; <code>S##</code> rows go to path-completing or final-wave E2E tickets; wide changes follow <strong>Expand → Migrate → Contract</strong>. Run mandatory neighbour-merge correction pass.",
           "Compute waves (<code>wave = 1 + max(wave of blockedBy)</code>) and push overlapping <code>Zone</code> paths into later waves. Set <code>Review: yes</code> + <code>Model: strong</code> for foundation and login/keys/money/data-deletion risks.",
-          "Run <code>bv tickets</code> (<strong>Gate G3</strong>, marks rows <code>in-ticket</code>) and <code>bv commit plan</code> (sets <code>baseCommit</code>). Calling <code>bv stage build start</code> checks G2 + G3 + commands and <strong>freezes</strong> <code>setupCmd</code>, <code>checkCmd</code>, <code>e2eCmd</code> and <code>testsPattern</code>."
+          "Run <code>bv tickets</code> (<strong>Gate G3</strong>, marks rows <code>in-ticket</code>) and <code>bv commit plan</code> (sets <code>baseCommit</code>). Calling <code>bv stage build start</code> checks G2 + G3 + commands and <strong>freezes</strong> <code>setupCmd</code>, <code>checkCmd</code>, <code>e2eCmd</code> and <code>testsPattern</code> (a later change needs <code>--reason</code>; in semi/interview the user approves it)."
         ],
         outputs: "tickets/NN-*.md · passed Gate G3 · baseCommit plan commit · frozen check commands · Plan stage receipt"
       },
@@ -951,7 +951,7 @@
         steps: [
           "Dispatch ready tickets (up to <strong>3 in flight</strong>, wave is not a barrier): <code>bv ticket &lt;ids&gt; start</code> + background <code>bv-executor</code> (<code>sonnet</code> for regular, session model for strong; <code>description: \"Ticket NN: …\"</code> locks its write <code>Zone</code>).",
           "Executors work strictly Test-First (write failing test → record <code>REDPROOF</code> → implement inside <code>Zone</code> → return ≤ 25-line 8-field contract).",
-          "<strong>Sequential intake per ticket:</strong> ① <code>bv contract &lt;id&gt; --from -</code> → ② check <code>git status</code> &amp; append <code>INTERFACES</code> to <code>interfaces.md</code> → ③ <strong>Dual-gate <code>bv commit &lt;id&gt; --tests P/F</code></strong>: runs <code>checkCmd</code> itself (verifies exit 0, test count &amp; <code>blocked-by-other-ticket</code>) <strong>AND</strong> runs per-ticket <code>audit.scan</code> on changed files (<code>blocker</code>/<code>high</code> findings refuse the commit!).",
+          "<strong>Sequential intake per ticket:</strong> ① <code>bv contract &lt;id&gt; --from -</code> → ② check <code>git status</code> &amp; append <code>INTERFACES</code> to <code>interfaces.md</code> → ③ <strong>Dual-gate <code>bv commit &lt;id&gt; --tests P/F</code></strong>: runs <code>checkCmd</code> itself (verifies exit 0, test count &amp; <code>blocked-by-other-ticket</code>) <strong>AND</strong> runs per-ticket <code>audit.scan</code> on changed files (<code>blocker</code>/<code>high</code> findings refuse the commit!). A false positive is accepted only on a spot reviewer's <code>DROP</code>; <code>--fewer-tests</code> needs the user's approval in semi/interview.",
           "For <code>Review: yes</code> tickets, background <code>bv-reviewer</code> (Opus, <code>spot</code> mode) runs after commit; <code>bv ticket &lt;id&gt; done</code> verifies the reviewer's journal entry. Defects route to <strong>Shortfall repair</strong> (<code>bv ticket repair</code> + <code>bv handoff</code>, max 2) or <strong>Failure retry</strong> (<code>bv ticket retry</code> on strong model, max 2)."
         ],
         outputs: "Atomic audited ticket commits · updated interfaces.md · closed manifest rows · Build stage receipt"
@@ -962,9 +962,9 @@
         lead: "Goal: close the review stage only when BOTH a clean branch code audit/review AND a clean-clone execution check (Gate G5) pass on the exact same HEAD commit.",
         steps: [
           "<strong>0. Mechanical branch scan (<code>bv audit</code> → <code>audit.md</code>):</strong> checks the whole tree for secrets/key files (<code>blocker</code>), run-changed files for SAST patterns &amp; junk/dead code (orphans, unused exports/deps, debug leftovers, stubs, commented blocks), and root manifests via <code>npm audit</code> / <code>pip-audit</code> / <code>cargo audit</code>.",
-          "<strong>1–2. Whole-branch review:</strong> <code>bv-reviewer</code> (Opus, <code>branch</code> mode; up to 3 in parallel on T3) inspects <code>git diff baseCommit..HEAD</code>, <code>spec.md</code>, <code>interfaces.md</code>, concerns and <code>audit.md</code> → <code>FIX NOW / REPORT / DROP</code>. Every <code>blocker</code>/<code>high</code> audit finding must be <code>FIX NOW</code> or reviewer-confirmed <code>DROP</code> (<code>bv audit --accept &lt;id&gt; --note …</code>).",
+          "<strong>1–2. Whole-branch review:</strong> <code>bv-reviewer</code> (Opus, <code>branch</code> mode; up to 3 in parallel on T3) inspects <code>git diff baseCommit..HEAD</code>, <code>spec.md</code>, <code>interfaces.md</code>, concerns and <code>audit.md</code> → <code>FIX NOW / REPORT / DROP</code>. Every <code>blocker</code>/<code>high</code> audit finding must be <code>FIX NOW</code> or reviewer-confirmed <code>DROP</code> (<code>bv audit --accept &lt;id&gt; --note …</code>; <code>bv</code> reads the reviewer's last word on the id from the journal and refuses without a <code>DROP</code>).",
           "<strong>3–4. Ticket <code>F1</code> cleanup:</strong> all <code>FIX NOW</code> items (confirmed security holes, confirmed dead code, repeated defects) go into <code>tickets/F1-branch-fixes.md</code> → executor → <code>bv commit F1</code> → <code>bv-reviewer</code> (<code>repair</code> mode) → <code>bv ticket F1 done</code> → <strong>re-run <code>bv audit</code> on new HEAD</strong>.",
-          "<strong>5. Clean-clone execution (Gate G5 — <code>bv verify</code>):</strong> clones <code>HEAD</code> without <code>.software-architector/</code> and runs <code>setupCmd</code> + <code>checkCmd</code> + <code>e2eCmd</code>. Red → ticket <code>F&lt;n&gt;</code> and repeat Steps 0–5 from <code>bv audit</code> (hard limit: <strong>max 2 <code>F</code> tickets</strong> in Phase 6 → else <code>bv finish --not-accepted</code>)."
+          "<strong>5. Clean-clone execution (Gate G5 — <code>bv verify</code>):</strong> clones <code>HEAD</code> without <code>.software-architector/</code> and runs <code>setupCmd</code> + <code>checkCmd</code> + <code>e2eCmd</code>. Red → ticket <code>F&lt;n&gt;</code> and repeat Steps 0–5 from <code>bv audit</code> (hard limit: <strong>max 2 <code>F</code> tickets</strong> in Phase 6 → else <code>bv finish --not-accepted</code>; one more only when the user asks: <code>bv tickets --extra-round \"&lt;reason&gt;\"</code>, user-approved, once per stage, never in <code>full</code>)."
         ],
         outputs: "audit.md · verified F1/F2 fixes · Gate G5 green on HEAD · Code review stage receipt"
       },
@@ -973,9 +973,9 @@
         title: "Final — Blind Acceptance (G4), ADR/Memory, Landing and Verbatim Receipt",
         lead: "Goal: verify the product in a history-free blind clone strictly against the user's briefs, write durable project docs/memory, and deliver a fact-backed final verdict with a verbatim Receipt.",
         steps: [
-          "<strong>1. Clean clone (Gate G5 on HEAD):</strong> already green from Phase 6; re-run <code>bv verify</code> only if code moved since (<code>--use-real-env</code> allowed only with explicit user consent and logged to the report).",
+          "<strong>1. Clean clone (Gate G5 on HEAD):</strong> already green from Phase 6; re-run <code>bv verify</code> only if code moved since (<code>--use-real-env</code>: Claude Code asks the user to allow the call, denied in <code>full</code>, logged to the report).",
           "<strong>2. Blind acceptance (Gate G4) &amp; ADR:</strong> <code>bv blind-clone</code> extracts <code>HEAD</code> via <code>git archive</code> (no git history, no spec/manifest). Launch <code>bv-blind</code> (Opus: installs &amp; runs product in clone, walks <code>S##</code> live, checks every brief line + <code>outcome.solved</code>) and <code>bv-adr</code> (Haiku, T2+: ADRs + glossary). <code>bv gate G4</code> reads the JSON verdict straight from the hook journal.",
-          "<strong>Full re-check repair round (max 2 <code>F</code> tickets in Phase 7):</strong> any drift/red creates <code>F&lt;n&gt;</code>, invalidating previous proofs — <code>bv-reviewer</code> (repair) → <code>bv ticket F&lt;n&gt; done</code> → <code>bv audit</code> → <code>bv verify</code> (G5) → fresh <code>bv blind-clone</code> + <code>bv-blind</code> + <code>bv gate G4</code> all re-run on the new commit!",
+          "<strong>Full re-check repair round (max 2 <code>F</code> tickets in Phase 7, +1 user-approved <code>--extra-round</code>):</strong> any drift/red creates <code>F&lt;n&gt;</code>, invalidating previous proofs — <code>bv-reviewer</code> (repair) → <code>bv ticket F&lt;n&gt; done</code> → <code>bv audit</code> → <code>bv verify</code> (G5) → fresh <code>bv blind-clone</code> + <code>bv-blind</code> + <code>bv gate G4</code> all re-run on the new commit!",
           "<strong>3–6. Land &amp; Report:</strong> run <code>bv-memory</code> (Haiku), write <code>.software-architector/PROGRESS.md</code>, and call <code>bv finish --result \"…\"</code> (verifies all gates/audit/review on HEAD, drops <code>--wip</code>, commits <code>Software-Architector: build delivered</code>, stops web server, and prints the verbatim <strong><code>Receipt</code></strong> for Section 13 of the report)."
         ],
         outputs: "Landing commit · ADR &amp; CONTEXT.md · AGENTS.md · PROGRESS.md · receipts.md · 13-section Report with verbatim Receipt"
