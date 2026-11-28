@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.0.1
+
+### Fixes
+
+- **A review is no longer counted for a commit made later in the same second.**
+  `bv` and the hooks wrote times in whole seconds, so a reviewer stop and the next
+  commit could get the same time. `bv stage final start` and `bv finish` then took
+  the old review as a review of the new code. Times now have milliseconds.
+  Older `state.json` files with whole seconds still load.
+
 ## 4.0.0
 
 Live runs on Claude Code 2.1.332 showed that the run could stall or close dishonestly.

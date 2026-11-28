@@ -1,7 +1,7 @@
 {
   "name": "software-architector",
   "displayName": "Software-Architector",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "Idea → finished project: requirements, specification, tickets, executor subagents, code review with a junk-code and security audit, blind acceptance. Run panel in VS Code: stages and the detailed work of each agent.",
   "author": {
     "name": "shleyger-dotcom",
