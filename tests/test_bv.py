@@ -829,6 +829,38 @@ class FixRoundTest(Base):
         self.assertIn("--not-accepted", self.fails("tickets"))
         self.assertNotIn("F3", [t["id"] for t in self.state()["tickets"]])
 
+    def at_the_limit(self, mode="semi"):
+        self.init(mode)
+        self.write_manifest()
+        self.write_ticket("01", reqs="R01", zone="`src/a/`")
+        self.write_ticket("02", reqs="R02, S01", deps="01", zone="`src/b/`", wave=2)
+        self.bv("stage", "spec", "start")
+        self.bv("stage", "plan", "start")
+        for n in (1, 2):
+            self.write_ticket(f"F{n}", reqs="R01", zone=f"`src/f{n}/`", wave=3)
+            self.bv("tickets")
+        self.write_ticket("F3", reqs="R01", zone="`src/f3/`", wave=3)
+
+    def test_one_more_round_needs_a_reason_and_is_given_once_per_stage(self):
+        self.at_the_limit()
+        self.assertIn("--extra-round", self.fails("tickets"))  # the refusal names the way the user can choose
+        self.assertIn("reason", self.fails("tickets", "--extra-round", "  "))
+        self.bv("tickets", "--extra-round", "the cause is found: a wrong port in the e2e script")
+        st = self.state()
+        self.assertIn("F3", [t["id"] for t in st["tickets"]])
+        self.assertIn("approved by the user: the cause is found", " ".join(st["lists"]["report"]))
+        self.write_ticket("F4", reqs="R01", zone="`src/f4/`", wave=3)
+        msg = self.fails("tickets", "--extra-round", "once more")
+        self.assertIn("--not-accepted", msg)
+        self.assertNotIn("--extra-round", msg)
+        self.assertNotIn("F4", [t["id"] for t in self.state()["tickets"]])
+
+    def test_mode_full_has_no_extra_round(self):
+        self.at_the_limit("full")
+        self.assertNotIn("--extra-round", self.fails("tickets"))
+        self.assertIn("mode full", self.fails("tickets", "--extra-round", "the cause is found"))
+        self.assertNotIn("F3", [t["id"] for t in self.state()["tickets"]])
+
 
 class ServerTest(Base):
     def test_web_opens_a_running_dashboard_or_starts_one(self):

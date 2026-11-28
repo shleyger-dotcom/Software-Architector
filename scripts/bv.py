@@ -981,8 +981,38 @@ def cmd_audit(root):
     print("\n".join(out))
 
 
-def cmd_audit_accept(st, a):
-    """A false positive: the block is lifted, and the reason goes into the report verbatim (like --fewer-tests)."""
+REVIEW_VERDICT = re.compile(r"^\W*(FIX NOW|REPORT|DROP|BLOCKING|FINDINGS)\b", re.I)
+
+
+def agent_answers(root, st, kind):
+    """Every final answer of agents of this kind in the run's journal, oldest first: [(time, text)]."""
+    agents = events.read_agents(root, st)
+    spawned = {e["spawned"]: e.get("s", "") for e in agents.get("main", []) if e.get("spawned")}
+    found = []
+    for name, rows in agents.items():
+        if not (any(e.get("type") == kind for e in rows) or kind in spawned.get(name, "")):
+            continue
+        for e in rows:
+            if (e.get("k") == "agent-stop" or e.get("tool") == events.HANDBACK) and (e.get("last") or e.get("final")):
+                p = events.out_path(root, st, e.get("final", ""))
+                found.append((dt.datetime.fromisoformat(e["t"]),
+                              p.read_text("utf-8", errors="replace") if p else e.get("last", "")))
+    return sorted(found, key=lambda x: x[0])
+
+
+def reviewer_verdict(root, st, fid):
+    """The reviewer's last word on an audit finding: "DROP", "FIX NOW", … from the journal, or None if none named it."""
+    verdict = None
+    for _, text in agent_answers(root, st, "bv-reviewer"):
+        for line in text.splitlines():
+            m = REVIEW_VERDICT.match(line) if fid in line else None
+            verdict = m.group(1).upper() if m else verdict
+    return verdict
+
+
+def cmd_audit_accept(root, st, a):
+    """A false positive: the block is lifted, and the reason goes into the report verbatim (like --fewer-tests).
+    Only on the reviewer's DROP as the journal holds it: the orchestrator's own word would lift its own block."""
     au = st.get("audit") or {}
     found = au.get("findings", []) + [x for t in st["tickets"] for x in (t.get("audit") or {}).get("findings", [])]
     f = next((x for x in found if x["id"] == a.accept), None)
@@ -992,6 +1022,10 @@ def cmd_audit_accept(st, a):
     note = (a.note or "").strip()
     if not note:
         raise Fail(f"--accept {f['id']} needs --note \"<why it is not a defect>\": it goes into the report verbatim")
+    verdict = reviewer_verdict(root, st, f["id"])
+    if verdict != "DROP":
+        raise Fail(f"bv-reviewer has not dropped {f['id']}" + (f" (its last word on it: {verdict})" if verdict else "")
+                   + f": show it the finding and accept only on its answer line `DROP: … [{f['id']}] — <why>`")
     st.setdefault("auditAccepted", {})[f["id"]] = note
     if au:
         au.setdefault("accepted", {})[f["id"]] = note
@@ -1410,7 +1444,7 @@ def cmd_set(st, pairs, reason=None):
     print("Saved: " + ", ".join(pairs))
 
 
-def cmd_tickets(root, st):
+def cmd_tickets(root, st, extra=None):
     tdir = run_dir(root, st) / "tickets"
     tickets = [parse_ticket(p) for p in sorted(tdir.glob("*.md"))]
     if not tickets:
@@ -1427,10 +1461,21 @@ def cmd_tickets(root, st):
     sid = next((s["id"] for s in st["stages"] if s["status"] == "active"), "-")
     new_fix = [t["id"] for t in tickets if t["id"].startswith("F") and t["id"] not in old]
     used = st.setdefault("fixRounds", {}).get(sid, 0)
-    if used + len(new_fix) > MAX_FIX_ROUNDS:
-        raise Fail(f"repair rounds used up: {used} F tickets in stage {sid} of this run, limit {MAX_FIX_ROUNDS} — "
-                   f"stop repairing and close honestly: `bv finish --not-accepted --result \"<what really works>\"`, "
-                   f"and tell the user first")
+    extended = (st.get("extraRounds") or {}).get(sid)
+    if used + len(new_fix) > MAX_FIX_ROUNDS + bool(extended):
+        # one more round per stage, only on the user's word: the guard has Claude Code ask them before this call runs
+        if extra is None or extended or used + len(new_fix) > MAX_FIX_ROUNDS + 1:
+            raise Fail(f"repair rounds used up: {used} F tickets in stage {sid} of this run, limit "
+                       f"{MAX_FIX_ROUNDS + bool(extended)} — stop repairing and close honestly: "
+                       f"`bv finish --not-accepted --result \"<what really works>\"`, and tell the user first"
+                       + ("" if extended or st["mode"] == "full" else
+                          ". Only if the user asks for one more round: `bv tickets --extra-round \"<why it will work now>\"`"))
+        if st["mode"] == "full":
+            raise Fail("--extra-round needs the user's approval, and mode full asks nobody: `bv finish --not-accepted`")
+        if not extra.strip():
+            raise Fail("--extra-round needs the reason: it goes into the report")
+        st.setdefault("extraRounds", {})[sid] = extra.strip()
+        st["lists"]["report"].append(f"One more repair round in stage {sid}, approved by the user: {extra.strip()}")
     if new_fix:
         st["fixRounds"][sid] = used + len(new_fix)
     remember_ids(st, rows)
@@ -1617,7 +1662,8 @@ def agent_json(root, st, kind, since):
     """A checker's verdict exactly as it returned it: its final answer, which the SubagentStop hook wrote to the journal."""
     e = agent_stop(root, st, kind, since, answered=True)
     if not e:
-        raise Fail(f"the journal does not confirm that {kind} finished work: run it and wait for the result")
+        raise Fail(f"the journal does not confirm that {kind} finished work: run it and wait for the result; "
+                   f"if it did finish, its hooks did not record it: `bv doctor`")
     p = events.out_path(root, st, e.get("final", ""))
     try:
         return parse_json(p.read_text("utf-8", errors="replace") if p else e.get("last", ""))
@@ -1957,7 +2003,7 @@ def cmd_reopen(root, st):
         if s["id"] != "preflight":
             s.update(status="active" if s["id"] == "manifest" else "pending", startedAt=None, finishedAt=None)
     st["gates"] = {g: None for g in GATES}
-    st["fixRounds"] = {}
+    st["fixRounds"], st["extraRounds"] = {}, {}
     log(st, "reopen")
     print(f"Run reopened: .software-architector/{st['dir']} — new dated brief, next requirement numbers")
 
@@ -2017,7 +2063,8 @@ def build_parser():
     s = sub.add_parser("set")
     s.add_argument("pairs", nargs="+")
     s.add_argument("--reason")
-    sub.add_parser("tickets")
+    s = sub.add_parser("tickets")
+    s.add_argument("--extra-round", metavar="REASON")
     s = sub.add_parser("ticket")
     s.add_argument("ids", nargs="+")
     s.add_argument("--note")
@@ -2149,7 +2196,7 @@ def _state_cmd(root, a):
     elif a.cmd == "set":
         cmd_set(st, a.pairs, a.reason)
     elif a.cmd == "tickets":
-        cmd_tickets(root, st)
+        cmd_tickets(root, st, a.extra_round)
     elif a.cmd == "ticket":
         cmd_ticket(root, st, a)
     elif a.cmd == "commit":
@@ -2163,7 +2210,7 @@ def _state_cmd(root, a):
     elif a.cmd == "blind-clone":
         cmd_blind_clone(root, st, a)
     elif a.cmd == "audit":
-        cmd_audit_accept(st, a)
+        cmd_audit_accept(root, st, a)
     try:
         recount(root, st)
     except Fail as e:

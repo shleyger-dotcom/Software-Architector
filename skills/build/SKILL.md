@@ -87,7 +87,7 @@ Any phase, any size, a one-line fix too. Never edit the code yourself.
 2. Stage before build: it simply joins the plan. Otherwise a ticket file with `Wave:` one after the last, `Blocked by: —`, `Review: no`, the zone it needs; then `bv tickets`, `bv ticket <id> start`, one executor, the usual "After each ticket" list from `phases/5-build.md`. Requests arriving while it flies go into the next ticket.
 3. Stage `review` or `final`: when these tickets are closed, without being asked, re-check them as `phases/6-review.md` says.
 
-"Commit" needs no action of its own: `bv commit` already committed the ticket. If the user explicitly wants to edit by hand: `bv set guard=off`, say so, and `bv set guard=on` afterwards.
+"Commit" needs no action of its own: `bv commit` already committed the ticket. If the user explicitly wants to edit by hand: `bv set guard=off`, say so, and `bv set guard=on` afterwards. Claude Code asks the user to allow `guard=off` and `bv init --force` during a run; a refusal is the user's answer, not a block to get around.
 
 ## Resume
 1. Read, in order: the memory file (AGENTS.md / CLAUDE.md), `manifest.md`, `interfaces.md`, all briefs of the run folder, then the active phase file.

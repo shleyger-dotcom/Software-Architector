@@ -310,6 +310,7 @@ class AuditCommandTest(Delivery):
         self.assertIn("no finding", self.fails("audit", "--accept", "s-00000000", "--note", "x"))
         self.assertIn("--note", self.fails("audit", "--accept", fid))
         self.assertIn("--note", self.fails("audit", "--accept", fid, "--note", "  "))
+        self.agent_ran("bv-reviewer", "Review of ticket 01", last=f"BLOCKING: none\nDROP: eval [{fid}] — a constant")
         self.bv("audit", "--accept", fid, "--note", "the expression is a constant, no user input reaches it")
         self.bv("commit", "01", "--tests", "1/0")
         self.bv("stage", "review", "start")
@@ -324,6 +325,20 @@ class AuditCommandTest(Delivery):
         st = self.state()
         self.assertIs(st["accepted"], True)
         self.assertIn("the expression is a constant, no user input reaches it", " ".join(st["lists"]["report"]))
+
+    def test_a_finding_is_accepted_only_on_the_reviewers_last_word_drop(self):
+        self.to_review(app=APP + "# TODO: negative numbers\n")
+        self.bv("audit")
+        fid = self.finding("stub")["id"]
+        self.assertIn("has not dropped", self.fails("audit", "--accept", fid, "--note", "x"))  # no reviewer named it
+        clock = iter(f"2030-01-01T00:00:{s:02d}+00:00" for s in range(60))  # one answer per second, in this order
+        with mock.patch.object(bv.events, "now", lambda: next(clock)):
+            self.agent_ran("bv-reviewer", last=f"DROP: the TODO [{fid}] — out of scope")
+            self.agent_ran("bv-reviewer", last=f"FIX NOW: the TODO [{fid}] — src — handle negatives")
+            self.assertIn("FIX NOW", self.fails("audit", "--accept", fid, "--note", "x"))
+            self.agent_ran("bv-reviewer", last=f"- **DROP**: the TODO [{fid}] — out of scope")
+        self.bv("audit", "--accept", fid, "--note", "negative numbers are out of scope")
+        self.assertEqual(self.state()["audit"]["accepted"], {fid: "negative numbers are out of scope"})
 
     def test_a_secret_committed_before_the_run_is_found_at_delivery(self):
         for args in (["init", "-q"], ["add", "old/settings.py"], ["commit", "-q", "-m", "old work"]):
@@ -368,6 +383,7 @@ class AuditCommandTest(Delivery):
             self.assertIn("not checked: npm", self.bv("audit"))
         self.assertNotIn("ANTHROPIC_API_KEY", rt.call_args[0][2])  # the scanners get check_env, not the session's keys
         fid = self.finding("stub")["id"]
+        self.agent_ran("bv-reviewer", last=f"DROP: the TODO [{fid}] — out of scope")
         self.bv("audit", "--accept", fid, "--note", "negative numbers are out of scope")
         text = bv.status_text(self.root, self.state(), with_url=False)
         for part in ("Audit", "not checked: npm", fid, "negative numbers are out of scope"):

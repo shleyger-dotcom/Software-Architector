@@ -744,6 +744,39 @@ MCP_WRITE_VERBS = {"write", "edit", "create", "update", "delete", "remove", "mov
                    "set", "put", "patch", "add", "save", "apply", "cancel", "restore", "duplicate", "upsert", "drop"}
 WRITE_CLASS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "PowerShell", "Agent", "Task")
 HOOK_BUDGET = 10  # seconds: the hook's own timeout is 15, and on a timeout Claude Code lets the tool run
+# bv's escape hatches: each weakens a check, so the user lets it through (Claude Code shows them the call), not the model.
+# The third field is the rule in mode full, where nobody is asked: ask anyway, deny, or pass (decided and reported)
+USER_ONLY = [(re.compile(p, re.I), what, full) for p, what, full in (
+    (r"\bguard=off\b", "switches off the run guard and its journal", "ask"),
+    (r"\binit\b.*\s--force\b", "abandons the open run and starts a new one", "ask"),
+    (r"\s--use-real-env\b", "copies the user's real .env into a clone", "deny"),
+    (r"\s--extra-round\b", "opens one more repair round past the limit", "deny"),
+    (r"\s--reason\b", "changes a check command frozen since the build started", "pass"),
+    (r"\s--fewer-tests\b", "lets the project's test count drop", "pass"),
+)]
+BV_WORD = re.compile(r"\bbv\b", re.I)
+
+
+def user_only(data, st):
+    """("ask" | "deny", reason) for a bv call that opens an escape hatch; None for anything else."""
+    if data.get("tool_name") not in ("Bash", "PowerShell"):
+        return None
+    cmd = dequote(unnest(without_data((data.get("tool_input") or {}).get("command", ""))))
+    if not BV_WORD.search(cmd):
+        return None
+    for rx, what, full in USER_ONLY:
+        if not rx.search(cmd):
+            continue
+        if data.get("agent_id"):
+            return "deny", f"this bv call {what}: only the orchestrator runs bv, and only the user allows this"
+        if st.get("mode") == "full" and full == "pass":
+            continue
+        if st.get("mode") == "full" and full == "deny":
+            return "deny", (f"this bv call {what}: that needs the user's consent, and mode full asks nobody. "
+                            f"Close honestly (`bv finish --not-accepted`) or ask the user to switch the mode")
+        return "ask", (f"Software-Architector: this bv call {what}. Allow it only if you asked for it yourself; "
+                       f"the run report names it")
+    return None
 
 
 def check_mcp(tool, ti):
@@ -813,6 +846,12 @@ def run_hook(event):
         return 0
     if event == "pre-tool":
         reason = decide_in_time(data, root, st)
+        hatch = None if reason else user_only(data, st)
+        if hatch and hatch[0] == "ask":
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask",
+                                                     "permissionDecisionReason": hatch[1]}}, ensure_ascii=False))
+            return 0
+        reason = reason or (hatch and hatch[1])
         if reason:
             journal("deny", {**data, "reason": reason}, root, st)
             print(f"Software-Architector: {reason}", file=sys.stderr)

@@ -31,13 +31,15 @@ SPEC: ok | <missing/extra/wrong items>
 CRAFT: ok | <items>
 FINDINGS: non-blocking notes
 BLOCKING: exact conditions the executor must satisfy (or "none")
+DROP: <concern> [<audit id>] — <why it is a false positive>
 ```
+The launch prompt may name audit findings of the ticket (`bv commit` refused on them). Answer each by its id: a `BLOCKING` line (confirmed) or a `DROP` line (false positive). `bv audit --accept` lifts a block only on your `DROP` line, so never write one you have not checked in the code. No such findings → omit the `DROP` line.
 
 ## Branch mode
 Inputs: run `git diff <baseCommit>..HEAD` yourself; the spec, `interfaces.md`, deferred concerns (confirm or drop each). Manifest axis is not judged here.
 A pattern repeated in ≥ 3 places = FIX NOW. A security finding is FIX NOW or REPORT, never DROP.
 
-The launch prompt names `audit.md` (the output of `bv audit`: junk code, security patterns, dependency CVEs). Read it. It is a heuristic pre-filter: confirm or refute each finding in the code. Every finding of severity `blocker` or `high` must appear in your answer by its id: FIX NOW (confirmed), or DROP with the reason it is a false positive (the orchestrator then runs `bv audit --accept <id> --note "<reason>"`). Confirmed dead code (unused file, export, dependency, debug leftover, commented-out code) and any confirmed security hole are FIX NOW. A tool listed as "not checked" in `audit.md` is a REPORT line.
+The launch prompt names `audit.md` (the output of `bv audit`: junk code, security patterns, dependency CVEs). Read it. It is a heuristic pre-filter: confirm or refute each finding in the code. Every finding of severity `blocker` or `high` must appear in your answer by its id: FIX NOW (confirmed), or DROP with the reason it is a false positive (the orchestrator then runs `bv audit --accept <id> --note "<reason>"`; `bv` reads your DROP line from the journal and refuses without it). Confirmed dead code (unused file, export, dependency, debug leftover, commented-out code) and any confirmed security hole are FIX NOW. A tool listed as "not checked" in `audit.md` is a REPORT line.
 
 Return ≤ 40 lines:
 ```

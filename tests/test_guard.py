@@ -560,5 +560,50 @@ class OutsideTheProjectTest(GuardBase):
         self.assertIsNone(self.decide("Bash", "bv-executor", command='echo x > "$TEMP/dbg.txt"'))
 
 
+class EscapeHatchTest(GuardBase):
+    def hatch(self, cmd, agent=None, mode="semi"):
+        data = {"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": str(self.root)}
+        if agent:
+            data.update(agent_id="a1", agent_type=f"software-architector:{agent}")
+        return guard.user_only(data, {**self.st, "mode": mode})
+
+    def test_the_user_allows_each_escape_hatch(self):
+        for cmd in ("bv set guard=off", 'bv set "guard=off"', 'bv set guard="off"', '"C:/My P/bin/bv" set guard=off',
+                    "python scripts/bv.py set guard=off", "bv init --slug x --force", "bv verify --use-real-env",
+                    "bv blind-clone --use-real-env", 'bv tickets --extra-round "port fixed"',
+                    'bv set checkCmd="npm test" --reason "runner moved"', 'bv commit 01 --tests 3/0 --fewer-tests "merged"',
+                    'bash -c "bv set guard=off"'):
+            self.assertEqual(self.hatch(cmd)[0], "ask", cmd)
+        for cmd in ("bv set guard=on", "bv init --slug x", "bv verify", "bv tickets", "bv commit 01 --tests 3/0",
+                    'grep -n "guard=off" skills/build/SKILL.md', "git log --reason", "cat <<'E' > x.md\nbv set guard=off\nE"):
+            self.assertIsNone(self.hatch(cmd), cmd)
+
+    def test_mode_full_refuses_what_needs_consent_and_passes_what_it_decides_itself(self):
+        for cmd in ("bv verify --use-real-env", 'bv tickets --extra-round "x"'):
+            self.assertEqual(self.hatch(cmd, mode="full")[0], "deny", cmd)
+        self.assertEqual(self.hatch("bv set guard=off", mode="full")[0], "ask")  # the user asked for it, so is there
+        for cmd in ('bv commit 01 --tests 3/0 --fewer-tests "merged"', 'bv set checkCmd="npm test" --reason "moved"'):
+            self.assertIsNone(self.hatch(cmd, mode="full"), cmd)
+
+    def test_a_subagent_cannot_open_one(self):
+        for mode in ("semi", "full"):
+            self.assertEqual(self.hatch("bv set guard=off", "bv-executor", mode)[0], "deny")
+
+    def test_the_hook_has_claude_code_ask_the_user_and_blocks_a_subagent(self):
+        def hook(**extra):
+            payload = {"tool_name": "Bash", "tool_input": {"command": "bv set guard=off"}, "cwd": str(self.root), **extra}
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch("sys.stdin", io.StringIO(json.dumps(payload))), redirect_stdout(out), redirect_stderr(err):
+                return guard.run_hook("pre-tool"), out.getvalue(), err.getvalue()
+        code, out, _ = hook()
+        self.assertEqual(code, 0)
+        h = json.loads(out)["hookSpecificOutput"]
+        self.assertEqual((h["hookEventName"], h["permissionDecision"]), ("PreToolUse", "ask"))
+        self.assertIn("guard", h["permissionDecisionReason"])
+        code, out, err = hook(agent_id="a1", agent_type="software-architector:bv-executor")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("only the user allows this", err)
+
+
 if __name__ == "__main__":
     unittest.main()

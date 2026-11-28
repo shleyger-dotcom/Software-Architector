@@ -124,7 +124,9 @@ While a run is active in the project:
 - the researcher, who reads the internet, writes only `research.md`; a secret does not go into a search query or a page address;
 - MCP tools that change something or act outside are blocked during a run; the orchestrator starts only the agents `software-architector:bv-*`, and a foreign agent only reads;
 - if the guard check fails or does not finish within 10 s, a call that writes (Write/Edit, Bash, an agent, MCP) is not let through;
-- if `state.json` is damaged, changes are blocked and do not pass silently; only `bv` itself passes.
+- if `state.json` is damaged, changes are blocked and do not pass silently; only `bv` itself passes;
+- the escape hatches of `bv` need you, not the model: Claude Code asks you to allow `bv set guard=off`, `bv init --force`, `--use-real-env`, `bv tickets --extra-round` (one more repair round past the limit), and in modes semi/interview also `bv set … --reason` (a frozen check command changes) and `bv commit … --fewer-tests`. In mode `full` nobody is asked: `--use-real-env` and `--extra-round` are refused, `--reason` and `--fewer-tests` pass and go into the report. A subagent cannot run any of them;
+- `bv audit --accept <id>` lifts a `blocker`/`high` audit finding only when the reviewer's answer in the journal drops it (`DROP: … [<id>] — …`).
 
 This protects against accidental errors of the model. It is not a security boundary: the rules are regular expressions over the command text. You can bypass them on purpose (for example, run a script file that writes into the project, build a command from variables, call a pre-configured git alias or `Start-Process`). The guard learns the zone of a ticket from the description of the agent call ("Ticket 02: …"); without it, an executor can write to the zones of all tickets in flight. The number of tests is counted for the whole project, not for a ticket. Do not start a run on a machine or in a repository where a model error is not acceptable.
 
@@ -141,7 +143,7 @@ The researcher (`bv-research`) checks on the internet, before the spec, everythi
 
 Check the installation with `bv doctor` (git, `bin/bv`, all 8 hooks, the state schema; with an open run it also checks that the hooks really fire). `bv contract <ticket> --from -` checks the executor's contract, and `bv handoff <ticket> --note "…" --tail -` builds the package for a repair.
 
-Emergency switch: `bv set guard=off` (visible in the status and the journal).
+Emergency switch: `bv set guard=off` (Claude Code asks you to allow it; visible in the status and the journal).
 
 ## Structure
 
