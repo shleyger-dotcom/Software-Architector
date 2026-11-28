@@ -18,7 +18,7 @@ HANDBACK = "SubagentHandback"  # Claude Code 2.1.332: the tool a subagent ends w
 
 
 def now():
-    return dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    return dt.datetime.now().astimezone().isoformat(timespec="milliseconds")
 
 
 def live_dir(root, st):

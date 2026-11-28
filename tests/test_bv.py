@@ -182,6 +182,16 @@ class InitTest(Base):
         self.assertIn("mode", self.fails("init", "--slug", "x", "--mode", "manual"))
 
 
+class ClockTest(unittest.TestCase):
+    def test_timestamps_order_events_within_one_second(self):
+        """With whole seconds, a review that stopped just before a commit in the same second counted as after it."""
+        import events
+        for t in (bv.now(), events.now()):
+            self.assertRegex(t, r"T\d\d:\d\d:\d\d\.\d{3}[+-]\d\d:\d\d$")
+        a, b = bv.now(), events.now()
+        self.assertLessEqual(bv.dt.datetime.fromisoformat(a), bv.dt.datetime.fromisoformat(b))
+
+
 class ManifestTest(Base):
     def test_parse_escaped_pipe_and_counts_skip_d(self):
         self.init()

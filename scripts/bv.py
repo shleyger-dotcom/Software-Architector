@@ -98,7 +98,7 @@ class Fail(Exception):
 
 
 def now():
-    return dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    return dt.datetime.now().astimezone().isoformat(timespec="milliseconds")
 
 
 def find_root(start=None):
