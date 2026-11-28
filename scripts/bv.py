@@ -233,7 +233,7 @@ def locked(root, wait=15, stale=60, name="state", busy="state.json is held by an
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(mine)
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError):  # Windows: a lock file another bv is deleting gives PermissionError
             try:
                 content = lock.read_text("utf-8")
                 if lock_is_stale(lock, content, stale):  # a crashed bv left it

@@ -999,6 +999,26 @@ class LockTest(Base):
         self.assertEqual(len(st["lists"]["concerns"]), 4)
         self.assertEqual((bv.find_ticket(st, "01")["contract"], st["title"]), ("DONE", "parallel"))
 
+    def test_a_lock_file_being_deleted_is_waited_for(self):
+        """Windows: O_EXCL on a lock file that another bv is deleting raises PermissionError, not FileExistsError."""
+        real_open, calls = os.open, []
+
+        def deleting_then_free(path, flags, *args):
+            calls.append(path)
+            if len(calls) == 1:
+                raise PermissionError(13, "Permission denied", str(path))
+            return real_open(path, flags, *args)
+
+        with mock.patch.object(bv.os, "open", deleting_then_free), bv.locked(self.root, name="test-delete-pending"):
+            self.assertTrue(bv.lock_path(self.root, "test-delete-pending").exists())
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(bv.lock_path(self.root, "test-delete-pending").exists())
+
+    def test_a_lock_that_stays_unwritable_times_out(self):
+        with mock.patch.object(bv.os, "open", side_effect=PermissionError(13, "Permission denied")):
+            with self.assertRaises(bv.Fail), bv.locked(self.root, wait=0.2, name="test-unwritable"):
+                pass
+
     def dead_pid(self):
         p = subprocess.Popen([sys.executable, "-c", "pass"])
         p.wait()

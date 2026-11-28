@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.0.2
+
+### Fixes
+
+- **Parallel `bv` commands no longer crash on Windows now and then.** When one `bv`
+  call deleted its lock file, another call could get `PermissionError` instead of
+  `FileExistsError` and stopped with a traceback. `bv` now waits and tries again,
+  as it does for a busy lock.
+
 ## 4.0.1
 
 ### Fixes
